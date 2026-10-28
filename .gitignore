@@ -1,5 +1,5 @@
 # ============================================================
-# XEPAY (XEPY) — .gitignore
+# XEPAY (ticker: XEPY) — .gitignore
 # Copyright (c) 2026 Aldianokto
 # Distributed under the Apache License, see the accompanying
 # file LICENSE or https://www.apache.org/licenses/LICENSE-2.0.
@@ -14,50 +14,38 @@
 *.profraw
 *.profdata
 
-# XEPAY runtime data
-/xepay.db/
-*.sled/
-
 # Incremental compilation cache (redundant with /target/, kept explicit)
 /target/debug/incremental/
 /target/release/incremental/
 
 # ------------------------------------------------------------
+# XEPAY runtime data
+# ------------------------------------------------------------
+/xepay.db/
+*.sled/
+/xepay
+
+# ------------------------------------------------------------
 # Cargo lockfile policy
 # ------------------------------------------------------------
-# XEPY is a BINARY crate (it declares [[bin]] in Cargo.toml).
+# XEPAY is a BINARY crate (it declares [[bin]] in Cargo.toml).
 # For binaries, Cargo.lock SHOULD be committed to guarantee
 # reproducible builds. Do NOT ignore it.
-# (This section intentionally left as documentation.)
 # Cargo.lock
 
 # ------------------------------------------------------------
 # Cargo tooling artifacts
 # ------------------------------------------------------------
-# `cargo doc` output
 /doc/
-
-# `cargo bench` / criterion output
 /criterion/
 **/criterion/
-
-# `cargo tarpaulin` / llvm-cov coverage
 /coverage/
-*.profraw
-*.profdata
 *.lcov
 lcov.info
 tarpaulin-report.*
-
-# `cargo mutants` output
 /mutants.out/
 mutants.out.old/
-
-# `cargo audit` local DB (rare, but possible)
 .cargo-audit/
-
-# Vendored dependencies (only ignore if you do NOT vendor)
-# /vendor/
 
 # ------------------------------------------------------------
 # Debug / profiling / tracing artifacts
@@ -88,66 +76,32 @@ secrets/
 .secrets/
 
 # ------------------------------------------------------------
-# Blockchain runtime data (if you later add persistence)
-# ------------------------------------------------------------
-/data/
-/chain/
-/wallet/
-*.db
-*.sqlite
-*.sqlite3
-*.sled
-*.rocksdb/
-
-# ------------------------------------------------------------
-# Node / P2P runtime (if you later add networking)
-# ------------------------------------------------------------
-/peers.json
-/nodes/
-*.pid
-
-# ------------------------------------------------------------
 # IDE / Editor
 # ------------------------------------------------------------
-# VS Code
 .vscode/*
 !.vscode/extensions.json
 !.vscode/settings.json.example
 !.vscode/launch.json.example
-
-# JetBrains (RustRover, IntelliJ, CLion)
 .idea/
 *.iml
 *.iws
 *.ipr
 out/
-
-# Vim / Neovim
 *.swp
 *.swo
 *.swn
 *~
 .vim/
 .nvim/
-
-# Emacs
 *#
 .#*
 .\#*
 .emacs.d/
 .projectile
-
-# Sublime Text
 *.sublime-workspace
 *.sublime-project
-
-# Zed
 .zed/
-
-# Helix
 .helix/
-
-# Kate / KDevelop
 .kdev4/
 *.kdev4
 .kate-swp
@@ -155,7 +109,6 @@ out/
 # ------------------------------------------------------------
 # OS noise
 # ------------------------------------------------------------
-# macOS
 .DS_Store
 .AppleDouble
 .LSOverride
@@ -164,8 +117,6 @@ out/
 .Trashes
 Icon?
 .fseventsd
-
-# Windows
 Thumbs.db
 Thumbs.db:encryptable
 ehthumbs.db
@@ -174,8 +125,6 @@ Desktop.ini
 $RECYCLE.BIN/
 *.lnk
 *.stackdump
-
-# Linux
 *~
 .directory
 .Trash-*
@@ -184,19 +133,10 @@ $RECYCLE.BIN/
 # ------------------------------------------------------------
 # Language / toolchain specifics
 # ------------------------------------------------------------
-# rust-analyzer cache (usually inside target, but just in case)
 .rust-analyzer/
-
-# rustfmt backup
 *.rs.bk
-
-# Clippy cache (usually inside target)
 .clippy.toml.local
-
-# sccache
 .sccache/
-
-# mold linker temp
 *.mold.*
 
 # ------------------------------------------------------------
@@ -211,7 +151,6 @@ junit.xml
 # ------------------------------------------------------------
 # Documentation
 # ------------------------------------------------------------
-# Keep README/LICENSE, ignore generated docs
 /book/
 /_site/
 *.html.bak
