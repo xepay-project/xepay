@@ -4,35 +4,30 @@
 
 // blockchain.rs
 // The XEPAY (ticker: XEPY) chain, v0.2.
-//
-// v0.2 changes:
-//   - Timestamp bounds via Median-Time-Past (MTP) rule.
-//   - Moving-average difficulty adjustment (replaces integer ±1 step).
-//   - Block reward with halving every HALVING_INTERVAL blocks.
-//   - Coinbase automatically added to every block.
-//   - Balance tracking for transaction validation.
 
+use std::collections::HashMap;
 use crate::block::{coinbase_tx, Block};
 use crate::transaction::Transaction;
-use std::collections::HashMap;
 
 pub const TARGET_BLOCK_TIME_SECS: i64 = 15;
 pub const ADJUSTMENT_INTERVAL: usize = 20;
 pub const MIN_DIFFICULTY: u32 = 1;
 
-/// Initial block reward, in XEPYsat (1 XEPY = 100_000_000 XEPYsat).
 pub const INITIAL_REWARD: u64 = 50_0000_0000;
-/// Reward halves every 210,000 blocks (Bitcoin-style cadence).
 pub const HALVING_INTERVAL: u64 = 210_000;
-/// How many past timestamps participate in the MTP median.
 pub const MTP_WINDOW: usize = 11;
+
+/// Protocol version reported in the node banner.
+pub const PROTOCOL_VERSION: &str = "0.2.1";
+/// Network identity. Testnet for now; mainnet will use a different value.
+pub const NETWORK: &str = "testnet";
+/// Chain ID prevents cross-network replay and accidental mixing of databases.
+pub const CHAIN_ID: &str = "xepay-testnet-1";
 
 pub struct Blockchain {
     pub chain: Vec<Block>,
     pub difficulty: u32,
-    /// Current balance per address (public key hex).
     pub balances: HashMap<String, u64>,
-    /// Next expected nonce per sender (replay protection).
     pub nonces: HashMap<String, u64>,
 }
 
@@ -60,7 +55,6 @@ impl Blockchain {
         self.chain.len()
     }
 
-    /// Compute the block reward for a given height, applying halving.
     pub fn block_reward(&self) -> u64 {
         let halvings = (self.chain.len() as u64) / HALVING_INTERVAL;
         if halvings >= 64 {
@@ -69,7 +63,6 @@ impl Blockchain {
         INITIAL_REWARD >> halvings
     }
 
-    /// Median-Time-Past check: reject timestamps ≤ median of last MTP_WINDOW.
     pub fn timestamp_passes_mtp(&self, ts: i64) -> bool {
         if self.chain.len() < MTP_WINDOW {
             return ts > self.tip().header.timestamp;
@@ -85,16 +78,13 @@ impl Blockchain {
         ts > recent[MTP_WINDOW / 2]
     }
 
-    /// Check that every non-coinbase transaction is affordable given current
-    /// balances and nonces. Does NOT mutate state.
     pub fn validate_transactions(&self, txs: &[Transaction]) -> bool {
-        // Temporary deltas to account for intra-block spending.
         let mut deltas: HashMap<String, i128> = HashMap::new();
         let mut nonce_delta: HashMap<String, u64> = HashMap::new();
 
         for tx in txs {
             if tx.from.is_empty() {
-                continue; // coinbase handled elsewhere
+                continue;
             }
             if !tx.verify() {
                 return false;
@@ -116,7 +106,6 @@ impl Blockchain {
         true
     }
 
-    /// Mine and append a block containing `txs`. Adds coinbase automatically.
     pub fn add_block(
         &mut self,
         mut txs: Vec<Transaction>,
@@ -126,14 +115,12 @@ impl Blockchain {
             return Err("transaction validation failed".into());
         }
 
-        // Apply nonce increments for intra-block sequencing.
         for tx in &txs {
             if !tx.from.is_empty() {
                 *self.nonces.entry(tx.from.clone()).or_insert(0) += 1;
             }
         }
 
-        // Compute fees and build coinbase.
         let fees: u64 = txs.iter().map(|t| t.fee).sum();
         let reward = self.block_reward();
         let cb = coinbase_tx(miner_address, reward, fees);
@@ -161,12 +148,10 @@ impl Blockchain {
         Ok(())
     }
 
-    /// Apply balance changes for the block at index `idx`.
     fn apply_block_balances(&mut self, idx: usize) {
         let block = self.chain[idx].clone();
         for tx in &block.transactions {
             if tx.from.is_empty() {
-                // Coinbase: only credits.
                 *self.balances.entry(tx.to.clone()).or_insert(0) += tx.amount;
             } else {
                 let sender_bal = self.balances.entry(tx.from.clone()).or_insert(0);
@@ -176,14 +161,14 @@ impl Blockchain {
         }
     }
 
-    /// Moving-average DAA: scale difficulty smoothly toward target.
     pub fn adjust_difficulty(&mut self) {
         if self.chain.len() < ADJUSTMENT_INTERVAL {
             return;
         }
         let last = self.chain.len() - 1;
         let first = last - (ADJUSTMENT_INTERVAL - 1);
-        let elapsed = self.chain[last].header.timestamp - self.chain[first].header.timestamp;
+        let elapsed = self.chain[last].header.timestamp
+            - self.chain[first].header.timestamp;
         let actual_per_block = (elapsed as f64) / ((ADJUSTMENT_INTERVAL - 1) as f64);
         let actual = actual_per_block.max(0.001);
 
@@ -191,9 +176,14 @@ impl Blockchain {
         let new_d = (self.difficulty as f64 * ratio).round() as i64;
         let new_d = new_d.max(MIN_DIFFICULTY as i64) as u32;
         if new_d != self.difficulty {
-            println!(
-                "[XEPY] DAA: {} -> {} (avg {:.2}s/block, target {}s)",
-                self.difficulty, new_d, actual, TARGET_BLOCK_TIME_SECS
+            crate::logging::info(
+                "difficulty_adjusted",
+                &[
+                    ("old", self.difficulty.to_string()),
+                    ("new", new_d.to_string()),
+                    ("avg_block_time_s", format!("{:.2}", actual)),
+                    ("target_s", TARGET_BLOCK_TIME_SECS.to_string()),
+                ],
             );
             self.difficulty = new_d;
         }
@@ -242,9 +232,7 @@ mod tests {
     #[test]
     fn reward_halves() {
         let mut c = Blockchain::new(1);
-        // Fake height to test halving logic without mining 210k blocks.
-        c.chain
-            .resize(HALVING_INTERVAL as usize + 1, c.chain[0].clone());
+        c.chain.resize(HALVING_INTERVAL as usize + 1, c.chain[0].clone());
         assert_eq!(c.block_reward(), INITIAL_REWARD >> 1);
     }
 
@@ -254,6 +242,6 @@ mod tests {
         let alice = Wallet::generate();
         let bob = Wallet::generate();
         let tx = Transaction::new_signed(&alice.signing_key(), &bob.address(), 1_000, 1, 0);
-        assert!(c.validate_transactions(&[tx]).eq(&false));
+        assert!(!c.validate_transactions(&[tx]));
     }
 }
