@@ -1484,16 +1484,9 @@ impl RpcHandler {
             return RpcResponse::err("sender and recipient addresses are identical");
         }
 
-        // Check if a custom nonce is provided and validate it against the mempool.
-        let nonce = if let Some(custom) = req.params.get(4).and_then(|v| v.as_u64()) {
-            let chain = self.state.chain.blocking_read();
-            // BITCOIN-GRADE: Reject the transaction if the custom nonce is already used in the mempool.
-            if chain.mempool.iter().any(|tx| tx.from == entry.address && tx.nonce == custom) {
-                return RpcResponse::err(&format!("nonce {} already used in mempool", custom));
-            }
-            custom
-        } else {
-            // Auto-generate the next available nonce if not provided.
+        // NOTE: Custom nonce input has been removed to prevent conflicts.
+        // The system will always auto-generate the correct nonce.
+        let nonce = {
             let chain = self.state.chain.blocking_read();
             chain.next_nonce_for(&entry.address)
         };
