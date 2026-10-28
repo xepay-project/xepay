@@ -3,7 +3,7 @@ name = "xepay"
 version = "0.3.0"
 edition = "2021"
 license = "Apache-2.0"
-authors = ["Aldianokto"]
+authors = ["Aldianokto, Xepay Core developers"]
 description = "XEPAY (ticker: XEPY) — a serious fast-block Layer-1 blockchain targeting ~15s block time, using SHA3-256."
 
 [[bin]]
@@ -19,3 +19,11 @@ hex = "0.4"
 ed25519-dalek = { version = "2.1", features = ["rand_core"] }
 rand = "0.8"
 sled = "0.34"
+
+# Optimize the release binary for the mining loop.
+# opt-level = 3 is the default, but explicit is better for a serious project.
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 1
+strip = true
