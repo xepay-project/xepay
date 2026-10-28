@@ -26,9 +26,13 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::{mpsc, RwLock};
 
+// Default RPC address for Mainnet. This is the port the node will listen on for RPC requests.
 pub const DEFAULT_RPC_ADDR: &str = "127.0.0.1:7554";
+
+// Default fee for transactions in XEPC (0.001 XEPC).
 pub const DEFAULT_FEE_XEPC: u64 = 100_000;
 
+// Number of ALD (smallest unit) in one XEPC.
 const ALD_PER_XEPC: u64 = 100_000_000;
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -45,15 +49,18 @@ pub struct RpcResponse {
 }
 
 impl RpcResponse {
+    // Create a successful RPC response.
     pub fn ok(result: Value) -> Self {
         RpcResponse { ok: true, result, error: String::new() }
     }
 
+    // Create an error RPC response.
     pub fn err(msg: &str) -> Self {
         RpcResponse { ok: false, result: Value::Null, error: msg.to_string() }
     }
 }
 
+// Retrieve the existing cookie from disk or generate a new one if it doesn't exist.
 fn get_or_create_cookie() -> std::io::Result<String> {
     let path = datadir::cookie_path();
     if let Ok(data) = std::fs::read_to_string(&path) {
@@ -80,17 +87,20 @@ fn get_or_create_cookie() -> std::io::Result<String> {
     Ok(cookie)
 }
 
+// Read the cookie file for client authentication.
 fn read_cookie_for_client() -> std::io::Result<String> {
     let path = datadir::cookie_path();
     let data = std::fs::read_to_string(&path)?;
     Ok(data.trim().to_string())
 }
 
+// Send an RPC request to the local node.
 pub fn call(method: &str, params: Vec<Value>) -> std::io::Result<RpcResponse> {
     let cfg = Config::load_or_default();
     call_at(&cfg, method, params)
 }
 
+// Send an RPC request to a specific configuration.
 pub fn call_at(cfg: &Config, method: &str, params: Vec<Value>) -> std::io::Result<RpcResponse> {
     let mut stream = TcpStream::connect(&cfg.rpc_addr)?;
 
@@ -133,18 +143,22 @@ pub fn call_at(cfg: &Config, method: &str, params: Vec<Value>) -> std::io::Resul
     Ok(resp)
 }
 
+// Convert an amount in ALD to a human-readable XEPC string.
 fn to_coin(amount: u64) -> String {
     format_xepc(amount)
 }
 
+// Convert an amount in ALD to a raw string.
 fn to_aldian(amount: u64) -> String {
     amount.to_string()
 }
 
+// Parse a human-readable XEPC string into ALD.
 fn parse_amount(s: &str) -> Result<u64, String> {
     parse_xepc(s)
 }
 
+// Select the best source address from the wallet to cover the required amount.
 fn select_source_address(
     wallet: &Wallet,
     chain: &Blockchain,
@@ -154,6 +168,7 @@ fn select_source_address(
 ) -> Result<String, String> {
     let current_height = chain.height();
 
+    // If an explicit source is provided, verify it exists and has enough balance.
     if let Some(from) = explicit_from {
         if from == to {
             return Err("sender and recipient addresses are identical".into());
@@ -171,10 +186,11 @@ fn select_source_address(
         );
     }
 
+    // Auto-select the address with the highest mature balance that can cover the amount.
     let mut best: Option<(String, u64)> = None;
     for entry in &wallet.entries {
         if entry.address == to {
-            continue;
+            continue; // Skip the destination address.
         }
         let bal = chain.mature_balance_at(&entry.address, current_height);
         if bal < need {
@@ -190,6 +206,7 @@ fn select_source_address(
         return Ok(addr);
     }
 
+    // Construct a detailed error message if no address can cover the amount.
     let mut details: Vec<String> = Vec::new();
     let mut total_available: u64 = 0;
     for entry in &wallet.entries {
@@ -221,6 +238,7 @@ struct RpcState {
 }
 
 impl RpcState {
+    // Return the consensus fingerprint for the active network.
     fn fingerprint(&self) -> String {
         consensus::consensus_fingerprint_for(self.network)
     }
@@ -232,6 +250,7 @@ pub struct RpcServer {
 }
 
 impl RpcServer {
+    // Create a new RPC server instance.
     pub fn new(
         chain: Arc<RwLock<Blockchain>>,
         cfg: &Config,
@@ -265,10 +284,12 @@ impl RpcServer {
         RpcServer { state, rpc_addr: cfg.rpc_addr.clone() }
     }
 
+    // Return the shutdown flag to allow external control.
     pub fn shutdown_flag(&self) -> Arc<AtomicBool> {
         self.state.shutdown.clone()
     }
 
+    // Start the RPC server loop.
     pub fn listen(&mut self) -> std::io::Result<()> {
         let listener = TcpListener::bind(&self.rpc_addr)?;
         let _ = listener.set_nonblocking(true);
@@ -305,6 +326,7 @@ struct RpcHandler {
 }
 
 impl RpcHandler {
+    // Parse the HTTP request and dispatch it to the correct method.
     fn handle(&mut self, stream: TcpStream) -> std::io::Result<()> {
         let mut reader = BufReader::new(stream.try_clone()?);
         let mut line = String::new();
@@ -353,6 +375,7 @@ impl RpcHandler {
         write_http_response(stream, 200, &resp)
     }
 
+    // Dispatch the method to the corresponding handler function.
     fn dispatch(&mut self, req: &RpcRequest) -> RpcResponse {
         match req.method.as_str() {
             "getinfo" => self.m_getinfo(),
@@ -410,6 +433,7 @@ impl RpcHandler {
         }
     }
 
+    // Get network information.
     fn m_getnetworkinfo(&self) -> RpcResponse {
         let reg = self.state.peer_registry.lock().unwrap();
         let connected = reg.iter().filter(|p| p.state == "Connected").count();
@@ -426,6 +450,7 @@ impl RpcHandler {
         }))
     }
 
+    // Get information about connected peers.
     fn m_getpeerinfo(&self) -> RpcResponse {
         let reg = self.state.peer_registry.lock().unwrap();
         let peers: Vec<Value> = reg.iter().map(|p| json!({
@@ -437,6 +462,7 @@ impl RpcHandler {
         RpcResponse::ok(json!(peers))
     }
 
+    // Stop the node and save the chain data.
     fn m_stop(&mut self) -> RpcResponse {
         println!();
         println!("[node] Stopping the running node. Please wait...");
@@ -482,6 +508,7 @@ impl RpcHandler {
         }))
     }
 
+    // Get general node information.
     fn m_getinfo(&self) -> RpcResponse {
         let c = self.state.chain.blocking_read();
         RpcResponse::ok(json!({
@@ -522,6 +549,7 @@ impl RpcHandler {
         }))
     }
 
+    // Get supply and inflation information.
     fn m_getsupplyinfo(&self) -> RpcResponse {
         let c = self.state.chain.blocking_read();
         let circulating = c.circulating_supply();
@@ -567,6 +595,7 @@ impl RpcHandler {
         }))
     }
 
+    // Get detailed blockchain information.
     fn m_getblockchaininfo(&self) -> RpcResponse {
         let c = self.state.chain.blocking_read();
         let tip = c.chain.last().unwrap();
@@ -601,6 +630,7 @@ impl RpcHandler {
         }))
     }
 
+    // Get a block template for miners.
     fn m_getblocktemplate(&self) -> RpcResponse {
         let c = self.state.chain.blocking_read();
         let next_height = c.height() + 1;
@@ -626,6 +656,7 @@ impl RpcHandler {
         }))
     }
 
+    // Submit a mined block to the node.
     fn m_submitblock(&mut self, req: &RpcRequest) -> RpcResponse {
         if req.params.is_empty() {
             return RpcResponse::err("submitblock requires a block parameter");
@@ -704,6 +735,7 @@ impl RpcHandler {
         }))
     }
 
+    // Get the balance of an address or the entire wallet.
     fn m_getbalance(&self, req: &RpcRequest) -> RpcResponse {
         if let Some(addr) = req.params.first().and_then(|v| v.as_str()) {
             let chain = self.state.chain.blocking_read();
@@ -745,6 +777,7 @@ impl RpcHandler {
         }))
     }
 
+    // Get the next expected nonce for an address.
     fn m_getnonce(&self, req: &RpcRequest) -> RpcResponse {
         let addr = match req.params.first().and_then(|v| v.as_str()) {
             Some(a) => a.to_string(),
@@ -771,6 +804,7 @@ impl RpcHandler {
         }))
     }
 
+    // Get the hash of a block at a specific height.
     fn m_getblockhash(&self, req: &RpcRequest) -> RpcResponse {
         let height = match req.params.first().and_then(|v| v.as_u64()) {
             Some(h) => h,
@@ -783,6 +817,7 @@ impl RpcHandler {
         RpcResponse::ok(json!(chain.chain[height as usize].hash))
     }
 
+    // Get detailed information about a block by its hash.
     fn m_getblock(&self, req: &RpcRequest) -> RpcResponse {
         let hash = match req.params.first().and_then(|v| v.as_str()) {
             Some(h) => h,
@@ -821,6 +856,7 @@ impl RpcHandler {
         }))
     }
 
+    // Get the header of a block by its hash.
     fn m_getblockheader(&self, req: &RpcRequest) -> RpcResponse {
         let hash = match req.params.first().and_then(|v| v.as_str()) {
             Some(h) => h,
@@ -854,22 +890,26 @@ impl RpcHandler {
         }))
     }
 
+    // Get the current block count (height).
     fn m_getblockcount(&self) -> RpcResponse {
         let chain = self.state.chain.blocking_read();
         RpcResponse::ok(json!(chain.height()))
     }
 
+    // Get the hash of the best (latest) block.
     fn m_getbestblockhash(&self) -> RpcResponse {
         let chain = self.state.chain.blocking_read();
         RpcResponse::ok(json!(chain.chain.last().unwrap().hash))
     }
 
+    // Get the current difficulty.
     fn m_getdifficulty(&self) -> RpcResponse {
         let chain = self.state.chain.blocking_read();
         let diff = pow::nbits_to_difficulty(chain.nbits);
         RpcResponse::ok(json!(diff))
     }
 
+    // Get information about chain tips.
     fn m_getchaintips(&self) -> RpcResponse {
         let chain = self.state.chain.blocking_read();
         let tip = chain.chain.last().unwrap();
@@ -883,6 +923,7 @@ impl RpcHandler {
         }]))
     }
 
+    // Get the hash of the genesis block.
     fn m_getgenesishash(&self) -> RpcResponse {
         let chain = self.state.chain.blocking_read();
         match chain.chain.first() {
@@ -891,6 +932,7 @@ impl RpcHandler {
         }
     }
 
+    // Get detailed information about the genesis block.
     fn m_getgenesis(&self) -> RpcResponse {
         let chain = self.state.chain.blocking_read();
         match chain.chain.first() {
@@ -923,6 +965,7 @@ impl RpcHandler {
         }
     }
 
+    // Verify the integrity of the entire chain.
     fn m_verifychain(&self) -> RpcResponse {
         let mut chain = self.state.chain.blocking_write();
         match validation::validate_chain(&mut chain) {
@@ -946,6 +989,7 @@ impl RpcHandler {
         }
     }
 
+    // Get details of a raw transaction by its txid.
     fn m_getrawtransaction(&self, req: &RpcRequest) -> RpcResponse {
         let txid = match req.params.first().and_then(|v| v.as_str()) {
             Some(t) => t.to_string(),
@@ -1022,6 +1066,7 @@ impl RpcHandler {
         RpcResponse::err("transaction not found")
     }
 
+    // Decode a raw transaction into a readable format.
     fn m_decoderawtransaction(&self, req: &RpcRequest) -> RpcResponse {
         let txid = match req.params.first().and_then(|v| v.as_str()) {
             Some(t) => t.to_string(),
@@ -1075,6 +1120,7 @@ impl RpcHandler {
         RpcResponse::err("transaction not found")
     }
 
+    // Test whether a transaction would be accepted into the mempool.
     fn m_testmempoolaccept(&self, req: &RpcRequest) -> RpcResponse {
         let txid = match req.params.first().and_then(|v| v.as_str()) {
             Some(t) => t.to_string(),
@@ -1117,6 +1163,7 @@ impl RpcHandler {
         }
     }
 
+    // Get a summary of the mempool.
     fn m_getmempoolinfo(&self) -> RpcResponse {
         let chain = self.state.chain.blocking_read();
         let txs = &chain.mempool;
@@ -1144,6 +1191,7 @@ impl RpcHandler {
         }))
     }
 
+    // Validate every transaction in the mempool.
     fn m_validatemempool(&self) -> RpcResponse {
         let chain = self.state.chain.blocking_read();
         let errors = validation::validate_mempool(&chain);
@@ -1158,6 +1206,7 @@ impl RpcHandler {
         }))
     }
 
+    // Mine blocks directly to an address.
     fn m_generatetoaddress(&mut self, req: &RpcRequest) -> RpcResponse {
         let n = match req.params.first().and_then(|v| v.as_u64()) {
             Some(n) => n,
@@ -1289,6 +1338,7 @@ impl RpcHandler {
         RpcResponse::ok(json!(hashes))
     }
 
+    // Send funds to an address.
     fn m_sendtoaddress(&mut self, req: &RpcRequest) -> RpcResponse {
         if req.params.len() < 2 {
             return RpcResponse::err("sendtoaddress requires at least <amount> and <to_address>");
@@ -1434,24 +1484,28 @@ impl RpcHandler {
             return RpcResponse::err("sender and recipient addresses are identical");
         }
 
+        // Check if a custom nonce is provided and validate it against the mempool.
         let nonce = if let Some(custom) = req.params.get(4).and_then(|v| v.as_u64()) {
-            // NOTE: Check if the custom nonce is already used in the mempool
             let chain = self.state.chain.blocking_read();
+            // BITCOIN-GRADE: Reject the transaction if the custom nonce is already used in the mempool.
             if chain.mempool.iter().any(|tx| tx.from == entry.address && tx.nonce == custom) {
                 return RpcResponse::err(&format!("nonce {} already used in mempool", custom));
             }
             custom
         } else {
+            // Auto-generate the next available nonce if not provided.
             let chain = self.state.chain.blocking_read();
             chain.next_nonce_for(&entry.address)
         };
 
+        // Create and sign the transaction.
         let mut tx = Transaction::new(&entry.address, &to, amount_ald, fee, nonce);
         if let Err(e) = tx.sign(&entry.secret) {
             return RpcResponse::err(&format!("failed to sign: {}", e));
         }
         let txid = tx.txid.clone();
 
+        // Add the transaction to the mempool.
         let mut chain = self.state.chain.blocking_write();
         if !chain.add_transaction(tx.clone()) {
             return RpcResponse::err(
@@ -1477,6 +1531,7 @@ impl RpcHandler {
         let mempool_len = chain.mempool.len();
         drop(chain);
 
+        // Broadcast the transaction to the P2P network.
         let cmd_tx = self.state.network_cmd_tx.clone();
         let _ = cmd_tx.blocking_send(NetworkCommand::BroadcastTransaction(txid.clone()));
 
@@ -1495,6 +1550,7 @@ impl RpcHandler {
         }))
     }
 
+    // Create a new Legacy address in the wallet.
     fn m_getcreatewallet(&mut self) -> RpcResponse {
         if let Err(e) = datadir::ensure_dirs() {
             return RpcResponse::err(&format!("failed to prepare datadir: {}", e));
@@ -1536,6 +1592,7 @@ impl RpcHandler {
         }
     }
 
+    // Create a new Bech32 address in the wallet.
     fn m_getcreatewalletbech32(&mut self) -> RpcResponse {
         if let Err(e) = datadir::ensure_dirs() {
             return RpcResponse::err(&format!("failed to prepare datadir: {}", e));
@@ -1587,6 +1644,7 @@ impl RpcHandler {
         }
     }
 
+    // Unlock the wallet using a password.
     fn m_walletpassphrase(&mut self, req: &RpcRequest) -> RpcResponse {
         let pass = match req.params.first().and_then(|v| v.as_str()) {
             Some(p) => p.to_string(),
@@ -1611,6 +1669,7 @@ impl RpcHandler {
         }
     }
 
+    // Migrate a legacy wallet to an HD wallet.
     fn m_migratewallet(&mut self) -> RpcResponse {
         let legacy_wallet = match Wallet::load_default() {
             Ok(w) => w,
@@ -1679,6 +1738,7 @@ impl RpcHandler {
         }))
     }
 
+    // Create a new HD wallet.
     fn m_createhdwallet(&mut self, req: &RpcRequest) -> RpcResponse {
         let word_count = req.params.first().and_then(|v| v.as_u64()).unwrap_or(12) as usize;
         match HdWallet::generate(word_count) {
@@ -1696,6 +1756,7 @@ impl RpcHandler {
         }
     }
 
+    // Load the HD wallet from disk.
     fn m_loadhdwallet(&self) -> RpcResponse {
         match HdWallet::load_default() {
             Ok(wallet) => RpcResponse::ok(json!({
@@ -1707,6 +1768,7 @@ impl RpcHandler {
         }
     }
 
+    // Restore an HD wallet from a mnemonic phrase.
     fn m_restorehdwallet(&mut self, req: &RpcRequest) -> RpcResponse {
         let phrase = match req.params.first().and_then(|v| v.as_str()) {
             Some(p) => p.to_string(),
@@ -1727,6 +1789,7 @@ impl RpcHandler {
         }
     }
 
+    // Dump the mnemonic phrase of the HD wallet.
     fn m_dumphdmnemonic(&self) -> RpcResponse {
         match HdWallet::load_default() {
             Ok(wallet) => RpcResponse::ok(json!({
@@ -1737,6 +1800,7 @@ impl RpcHandler {
         }
     }
 
+    // Derive a new address from the HD wallet.
     fn m_derivehdaddress(&mut self, req: &RpcRequest) -> RpcResponse {
         let index = match req.params.first().and_then(|v| v.as_u64()) {
             Some(i) => i as u32,
@@ -1773,6 +1837,7 @@ impl RpcHandler {
         }
     }
 
+    // List all addresses derived in the HD wallet.
     fn m_listhdaddresses(&self) -> RpcResponse {
         match HdWallet::load_default() {
             Ok(wallet) => RpcResponse::ok(json!({
@@ -1785,6 +1850,7 @@ impl RpcHandler {
     }
 }
 
+// Get the list of active checkpoints.
 fn m_getcheckpoints() -> RpcResponse {
     let items: Vec<Value> = blockchain::checkpoint::CHECKPOINTS
         .iter()
@@ -1793,6 +1859,7 @@ fn m_getcheckpoints() -> RpcResponse {
     RpcResponse::ok(json!(items))
 }
 
+// List all addresses in the legacy wallet.
 fn m_getlistwallet(chain_arc: Arc<RwLock<Blockchain>>) -> RpcResponse {
     let w = match Wallet::load_default() {
         Ok(w) => w,
@@ -1835,6 +1902,7 @@ fn m_getlistwallet(chain_arc: Arc<RwLock<Blockchain>>) -> RpcResponse {
     }))
 }
 
+// Dump the private key of a specific address.
 fn m_dumpprivkey(req: &RpcRequest) -> RpcResponse {
     let target = match req.params.first().and_then(|v| v.as_str()) {
         Some(a) => a.to_string(),
@@ -1857,6 +1925,7 @@ fn m_dumpprivkey(req: &RpcRequest) -> RpcResponse {
     }))
 }
 
+// Dump all addresses and private keys in the wallet.
 fn m_dumpwallet() -> RpcResponse {
     let w = match Wallet::load_default() {
         Ok(w) => w,
@@ -1884,6 +1953,7 @@ fn m_dumpwallet() -> RpcResponse {
     }))
 }
 
+// Import a private key into the wallet.
 fn m_importprivkey(req: &RpcRequest) -> RpcResponse {
     let secret = match req.params.first().and_then(|v| v.as_str()) {
         Some(s) => s.to_string(),
@@ -1964,6 +2034,7 @@ fn m_importprivkey(req: &RpcRequest) -> RpcResponse {
     }
 }
 
+// Encrypt the wallet with a password.
 fn m_encryptwallet(req: &RpcRequest) -> RpcResponse {
     let pass = match req.params.first().and_then(|v| v.as_str()) {
         Some(p) => p.to_string(),
@@ -1985,6 +2056,7 @@ fn m_encryptwallet(req: &RpcRequest) -> RpcResponse {
     }
 }
 
+// Get detailed information about an address.
 fn m_getaddressinfo(req: &RpcRequest) -> RpcResponse {
     let target = match req.params.first().and_then(|v| v.as_str()) {
         Some(a) => a.to_string(),
@@ -2007,6 +2079,7 @@ fn m_getaddressinfo(req: &RpcRequest) -> RpcResponse {
     }))
 }
 
+// Set a label for an address in the wallet.
 fn m_setlabel(req: &RpcRequest) -> RpcResponse {
     if req.params.len() < 2 {
         return RpcResponse::err("setlabel requires an address and a label");
@@ -2048,6 +2121,7 @@ fn m_setlabel(req: &RpcRequest) -> RpcResponse {
     }
 }
 
+// Backup the wallet file to a destination path.
 fn m_backupwallet(req: &RpcRequest) -> RpcResponse {
     let dest = match req.params.first().and_then(|v| v.as_str()) {
         Some(d) => d.to_string(),
@@ -2070,6 +2144,7 @@ fn m_backupwallet(req: &RpcRequest) -> RpcResponse {
     }
 }
 
+// Use the default wallet address as the mining target.
 fn m_getaddtowallet() -> RpcResponse {
     let w = match Wallet::load_default() {
         Ok(w) => w,
@@ -2090,6 +2165,7 @@ fn m_getaddtowallet() -> RpcResponse {
     }
 }
 
+// Set a manual mining address.
 fn m_getaddtoaddress(req: &RpcRequest) -> RpcResponse {
     let addr = match req.params.first().and_then(|v| v.as_str()) {
         Some(a) => a.to_string(),
@@ -2110,6 +2186,7 @@ fn m_getaddtoaddress(req: &RpcRequest) -> RpcResponse {
     }
 }
 
+// Write a standard HTTP response to the stream.
 fn write_http_response(
     mut stream: TcpStream,
     status: u16,
@@ -2128,6 +2205,7 @@ fn write_http_response(
     stream.flush()
 }
 
+// Call an RPC method and print the result to the console.
 pub fn call_and_print(method: &str, params: Vec<Value>) {
     match call(method, params) {
         Ok(resp) => {
