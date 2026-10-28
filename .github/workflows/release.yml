@@ -1,0 +1,148 @@
+# Copyright (c) 2026 Aldianokto
+# Distributed under the Apache License, see the accompanying
+# file LICENSE or https://www.apache.org/licenses/LICENSE-2.0.
+
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  CARGO_TERM_COLOR: always
+  SOURCE_DATE_EPOCH: 1767225600
+
+jobs:
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+
+      - name: Check formatting
+        run: cargo fmt --all -- --check
+
+      - name: Clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
+      - name: Test
+        run: cargo test --workspace --all-targets
+
+  build:
+    name: Build ${{ matrix.target }}
+    needs: test
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    permissions:
+      contents: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-gnu
+            os: ubuntu-latest
+            archive: xepay-linux-x64.tar.gz
+            ext: ""
+          - target: aarch64-unknown-linux-gnu
+            os: ubuntu-latest
+            archive: xepay-linux-arm64.tar.gz
+            ext: ""
+          - target: x86_64-apple-darwin
+            os: macos-latest
+            archive: xepay-macos-x64.tar.gz
+            ext: ""
+          - target: aarch64-apple-darwin
+            os: macos-latest
+            archive: xepay-macos-arm64.tar.gz
+            ext: ""
+          - target: x86_64-pc-windows-msvc
+            os: windows-latest
+            archive: xepay-windows-x64.zip
+            ext: ".exe"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Install cross
+        if: matrix.target == 'aarch64-unknown-linux-gnu'
+        run: cargo install cross --locked --version 0.2.5
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
+
+      - name: Build (native)
+        if: matrix.target != 'aarch64-unknown-linux-gnu'
+        run: cargo build --release --locked --target ${{ matrix.target }} --bin xepay --bin xepayd --bin xepay-miner --bin xepay-genesis
+
+      - name: Build (cross)
+        if: matrix.target == 'aarch64-unknown-linux-gnu'
+        run: cross build --release --locked --target ${{ matrix.target }} --bin xepay --bin xepayd --bin xepay-miner --bin xepay-genesis
+
+      - name: Package Linux and macOS
+        if: matrix.os != 'windows-latest'
+        shell: bash
+        run: |
+          mkdir -p package
+          for bin in xepay xepayd xepay-miner xepay-genesis; do
+            cp "target/${{ matrix.target }}/release/${bin}" package/
+          done
+          cp README.md package/ 2>/dev/null || true
+          cp LICENSE package/ 2>/dev/null || true
+          cp CHANGELOG.md package/ 2>/dev/null || true
+          find package -exec touch -d "@${SOURCE_DATE_EPOCH}" {} +
+          tar --sort=name --mtime="@${SOURCE_DATE_EPOCH}" --owner=0 --group=0 --numeric-owner -czf ${{ matrix.archive }} -C package .
+
+      - name: Package Windows
+        if: matrix.os == 'windows-latest'
+        shell: pwsh
+        run: |
+          mkdir package
+          foreach ($bin in @("xepay","xepayd","xepay-miner","xepay-genesis")) {
+            Copy-Item "target/${{ matrix.target }}/release/${bin}.exe" package/
+          }
+          if (Test-Path README.md) { Copy-Item README.md package/ }
+          if (Test-Path LICENSE) { Copy-Item LICENSE package/ }
+          if (Test-Path CHANGELOG.md) { Copy-Item CHANGELOG.md package/ }
+          Compress-Archive -Path package/* -DestinationPath ${{ matrix.archive }}
+
+      - name: Generate checksum
+        shell: bash
+        run: sha256sum ${{ matrix.archive }} > ${{ matrix.archive }}.sha256
+
+      - name: Upload release asset
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            ${{ matrix.archive }}
+            ${{ matrix.archive }}.sha256
+          generate_release_notes: true
+          fail_on_unmatched_files: true
+          prerelease: ${{ contains(github.ref, '-rc') || contains(github.ref, '-beta') || contains(github.ref, '-alpha') }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

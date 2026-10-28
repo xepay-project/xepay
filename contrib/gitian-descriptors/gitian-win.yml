@@ -1,0 +1,64 @@
+name: "xepay-win"
+suites:
+- "jammy"
+architectures:
+- "amd64"
+packages:
+- "curl"
+- "g++"
+- "git"
+- "pkg-config"
+- "autoconf"
+- "libtool"
+- "automake"
+- "faketime"
+- "bsdmainutils"
+- "ca-certificates"
+- "mingw-w64"
+- "zip"
+remotes:
+- "url": "https://github.com/xepay-project/xepay.git"
+  "dir": "xepay"
+files: []
+script: |
+  set -e -o pipefail
+  export PATH="$HOME/.cargo/bin:$PATH"
+  export SOURCE_DATE_EPOCH=$(date -d "2026-01-01" +%s)
+  export CARGO_INCREMENTAL=0
+  export RUST_BACKTRACE=0
+
+  RUST_VERSION="1.75.0"
+  RUST_TRIPLE="x86_64-unknown-linux-gnu"
+  RUST_URL="https://static.rust-lang.org/dist/rust-${RUST_VERSION}-${RUST_TRIPLE}.tar.gz"
+
+  curl -sSfL "$RUST_URL" -o rust.tar.gz
+  tar -xzf rust.tar.gz
+  ./rust-${RUST_VERSION}-${RUST_TRIPLE}/install.sh --prefix="$HOME/.rust"
+  export PATH="$HOME/.rust/bin:$PATH"
+
+  RUST_STD_URL="https://static.rust-lang.org/dist/rust-std-${RUST_VERSION}-x86_64-pc-windows-gnu.tar.gz"
+  curl -sSfL "$RUST_STD_URL" -o rust-std.tar.gz
+  tar -xzf rust-std.tar.gz
+  ./rust-std-${RUST_VERSION}-x86_64-pc-windows-gnu/install.sh --prefix="$HOME/.rust"
+
+  cd xepay
+
+  test -f Cargo.lock || { echo "Cargo.lock is missing"; exit 1; }
+
+  cargo fetch --locked
+
+  RUSTFLAGS="--remap-path-prefix=$PWD=/build/xepay --remap-path-prefix=$HOME/.cargo=/build/cargo -C debuginfo=0" \
+    cargo build --release --locked --frozen --target x86_64-pc-windows-gnu \
+    --bin xepay --bin xepayd --bin xepay-miner --bin xepay-genesis
+
+  mkdir -p dist
+  for bin in xepay xepayd xepay-miner xepay-genesis; do
+    cp "target/x86_64-pc-windows-gnu/release/${bin}.exe" dist/
+  done
+  cp ../README.md dist/ 2>/dev/null || true
+  cp ../LICENSE dist/ 2>/dev/null || true
+
+  find dist -exec touch -d "@${SOURCE_DATE_EPOCH}" {} +
+  cd dist
+  TZ=UTC zip -r -X ../xepay-win-x64.zip .
+  cd ..

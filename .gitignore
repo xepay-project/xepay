@@ -1,169 +1,56 @@
-# ============================================================
-# XEPAY (ticker: XEPY) — .gitignore
 # Copyright (c) 2026 Aldianokto
 # Distributed under the Apache License, see the accompanying
 # file LICENSE or https://www.apache.org/licenses/LICENSE-2.0.
-# ============================================================
 
-# ------------------------------------------------------------
-# Rust / Cargo build artifacts
-# ------------------------------------------------------------
+# Rust build artifacts
 /target/
-**/*.rs.bk
-*.pdb
+target/
+
+# Compiled binaries copied to the repository root by build.sh or Makefile
+/xepay
+/xepayd
+/xepay-miner
+/xepay-genesis
+
+# Gitian build directories
+/contrib/gitian-builder/
+/contrib/gitian-keys/*.private
+/contrib/gitian-keys/*.asc
+
+# Packaging and artifact directories
+/dist/
+/package/
+/artifact/
+
+# Release archives
+/*.tar.gz
+/*.zip
+
+# Code coverage output
 *.profraw
 *.profdata
-
-# Incremental compilation cache (redundant with /target/, kept explicit)
-/target/debug/incremental/
-/target/release/incremental/
-
-# ------------------------------------------------------------
-# XEPAY runtime data
-# ------------------------------------------------------------
-/xepay.db/
-*.sled/
-/xepay
-
-# ------------------------------------------------------------
-# Cargo lockfile policy
-# ------------------------------------------------------------
-# XEPAY is a BINARY crate (it declares [[bin]] in Cargo.toml).
-# For binaries, Cargo.lock SHOULD be committed to guarantee
-# reproducible builds. Do NOT ignore it.
-# Cargo.lock
-
-# ------------------------------------------------------------
-# Cargo tooling artifacts
-# ------------------------------------------------------------
-/doc/
-/criterion/
-**/criterion/
 /coverage/
-*.lcov
-lcov.info
-tarpaulin-report.*
-/mutants.out/
-mutants.out.old/
-.cargo-audit/
 
-# ------------------------------------------------------------
-# Debug / profiling / tracing artifacts
-# ------------------------------------------------------------
-*.log
-/perf.data*
-/perf.script*
-flamegraph.svg
-*.folded
-*.nsys-rep
-
-# Core dumps
-core
-core.*
-*.core
-
-# ------------------------------------------------------------
-# Environment & secrets
-# ------------------------------------------------------------
+# Local configuration and secrets
 .env
 .env.*
 !.env.example
-*.pem
-*.key
-*.p12
-*.pfx
-secrets/
-.secrets/
+wallet.dat
+xepay.conf
+peers.json
+mempool.json
+/chainstate/
+/blocks/
+.xepay/
 
-# ------------------------------------------------------------
-# IDE / Editor
-# ------------------------------------------------------------
-.vscode/*
-!.vscode/extensions.json
-!.vscode/settings.json.example
-!.vscode/launch.json.example
+# Editor and operating system files
+.DS_Store
+Thumbs.db
 .idea/
-*.iml
-*.iws
-*.ipr
-out/
+.vscode/
 *.swp
 *.swo
-*.swn
 *~
-.vim/
-.nvim/
-*#
-.#*
-.\#*
-.emacs.d/
-.projectile
-*.sublime-workspace
-*.sublime-project
-.zed/
-.helix/
-.kdev4/
-*.kdev4
-.kate-swp
 
-# ------------------------------------------------------------
-# OS noise
-# ------------------------------------------------------------
-.DS_Store
-.AppleDouble
-.LSOverride
-._*
-.Spotlight-V100
-.Trashes
-Icon?
-.fseventsd
-Thumbs.db
-Thumbs.db:encryptable
-ehthumbs.db
-ehthumbs_vista.db
-Desktop.ini
-$RECYCLE.BIN/
-*.lnk
-*.stackdump
-*~
-.directory
-.Trash-*
-.nfs*
-
-# ------------------------------------------------------------
-# Language / toolchain specifics
-# ------------------------------------------------------------
-.rust-analyzer/
-*.rs.bk
-.clippy.toml.local
-.sccache/
-*.mold.*
-
-# ------------------------------------------------------------
-# CI / local test artifacts
-# ------------------------------------------------------------
-/.github/workflows/*.local.yml
-/ci/local/
-*.test.log
-test-results/
-junit.xml
-
-# ------------------------------------------------------------
-# Documentation
-# ------------------------------------------------------------
-/book/
-/_site/
-*.html.bak
-
-# ------------------------------------------------------------
-# Misc
-# ------------------------------------------------------------
-*.bak
-*.orig
-*.rej
-*.tmp
-*.temp
-*.cache
-.cache/
-tmp/
-temp/
+# Log files
+*.log

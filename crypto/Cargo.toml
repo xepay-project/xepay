@@ -1,0 +1,17 @@
+# Copyright (c) 2026 Aldianokto
+# Distributed under the Apache License, see the accompanying
+# file LICENSE or https://www.apache.org/licenses/LICENSE-2.0.
+
+[package]
+name = "xepay-crypto"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+
+[dependencies]
+sha3 = "0.10"
+hex = "0.4"
+aes-gcm = "0.10"
+pbkdf2 = "0.12"
+sha2 = "0.10"
+base64 = "0.21"

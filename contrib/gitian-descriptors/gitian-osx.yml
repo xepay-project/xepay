@@ -1,0 +1,46 @@
+---
+name: "xepay-osx"
+suites:
+- "jammy"
+architectures:
+- "amd64"
+packages:
+- "curl"
+- "g++"
+- "git"
+- "pkg-config"
+- "autoconf"
+- "libtool"
+- "automake"
+- "faketime"
+- "bsdmainutils"
+- "ca-certificates"
+- "clang"
+- "libssl-dev"
+remotes:
+- "url": "https://github.com/xepay-project/xepay.git"
+  "dir": "xepay"
+files: []
+script: |
+  set -e -o pipefail
+  export PATH="$HOME/.cargo/bin:$PATH"
+  export SOURCE_DATE_EPOCH=$(date -d "2026-01-01" +%s)
+  cd xepay
+  if ! command -v cargo >/dev/null 2>&1; then
+    curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+    . "$HOME/.cargo/env"
+  fi
+  rustup target add x86_64-apple-darwin
+  rustup target add aarch64-apple-darwin
+  RUSTFLAGS="--remap-path-prefix=$PWD=/build/xepay" \
+    cargo build --release --target x86_64-apple-darwin \
+    --bin xepay --bin xepayd
+  RUSTFLAGS="--remap-path-prefix=$PWD=/build/xepay" \
+    cargo build --release --target aarch64-apple-darwin \
+    --bin xepay --bin xepayd
+  mkdir -p dist
+  cp target/x86_64-apple-darwin/release/xepay dist/xepay-x64
+  cp target/x86_64-apple-darwin/release/xepayd dist/xepayd-x64
+  cp target/aarch64-apple-darwin/release/xepay dist/xepay-arm64
+  cp target/aarch64-apple-darwin/release/xepayd dist/xepayd-arm64
+  tar -czf xepay-osx.tar.gz -C dist .
