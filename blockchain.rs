@@ -12,9 +12,9 @@
 //   - Coinbase automatically added to every block.
 //   - Balance tracking for transaction validation.
 
-use std::collections::HashMap;
 use crate::block::{coinbase_tx, Block};
 use crate::transaction::Transaction;
+use std::collections::HashMap;
 
 pub const TARGET_BLOCK_TIME_SECS: i64 = 15;
 pub const ADJUSTMENT_INTERVAL: usize = 20;
@@ -117,7 +117,11 @@ impl Blockchain {
     }
 
     /// Mine and append a block containing `txs`. Adds coinbase automatically.
-    pub fn add_block(&mut self, mut txs: Vec<Transaction>, miner_address: &str) -> Result<(), String> {
+    pub fn add_block(
+        &mut self,
+        mut txs: Vec<Transaction>,
+        miner_address: &str,
+    ) -> Result<(), String> {
         if !self.validate_transactions(&txs) {
             return Err("transaction validation failed".into());
         }
@@ -179,8 +183,7 @@ impl Blockchain {
         }
         let last = self.chain.len() - 1;
         let first = last - (ADJUSTMENT_INTERVAL - 1);
-        let elapsed = self.chain[last].header.timestamp
-            - self.chain[first].header.timestamp;
+        let elapsed = self.chain[last].header.timestamp - self.chain[first].header.timestamp;
         let actual_per_block = (elapsed as f64) / ((ADJUSTMENT_INTERVAL - 1) as f64);
         let actual = actual_per_block.max(0.001);
 
@@ -240,7 +243,8 @@ mod tests {
     fn reward_halves() {
         let mut c = Blockchain::new(1);
         // Fake height to test halving logic without mining 210k blocks.
-        c.chain.resize(HALVING_INTERVAL as usize + 1, c.chain[0].clone());
+        c.chain
+            .resize(HALVING_INTERVAL as usize + 1, c.chain[0].clone());
         assert_eq!(c.block_reward(), INITIAL_REWARD >> 1);
     }
 

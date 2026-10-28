@@ -9,22 +9,22 @@
 //   xepay run            — run the end-to-end demo (default)
 //   xepay wallet <...>   — CLI wallet (see cli.rs)
 
-#[path = "crypto.rs"]
-mod crypto;
-#[path = "transaction.rs"]
-mod transaction;
-#[path = "wallet.rs"]
-mod wallet;
-#[path = "mempool.rs"]
-mod mempool;
 #[path = "block.rs"]
 mod block;
 #[path = "blockchain.rs"]
 mod blockchain;
-#[path = "storage/storage.rs"]
-mod storage;
 #[path = "cli.rs"]
 mod cli;
+#[path = "crypto.rs"]
+mod crypto;
+#[path = "mempool.rs"]
+mod mempool;
+#[path = "storage/storage.rs"]
+mod storage;
+#[path = "transaction.rs"]
+mod transaction;
+#[path = "wallet.rs"]
+mod wallet;
 
 use blockchain::Blockchain;
 use mempool::Mempool;
@@ -68,20 +68,8 @@ fn run_demo() {
 
     // Build a mempool with two fee-paying transactions from alice.
     let mut pool = Mempool::new();
-    let tx1 = Transaction::new_signed(
-        &alice.signing_key(),
-        &bob.address(),
-        10_0000_0000,
-        100,
-        0,
-    );
-    let tx2 = Transaction::new_signed(
-        &alice.signing_key(),
-        &carol.address(),
-        5_0000_0000,
-        500,
-        1,
-    );
+    let tx1 = Transaction::new_signed(&alice.signing_key(), &bob.address(), 10_0000_0000, 100, 0);
+    let tx2 = Transaction::new_signed(&alice.signing_key(), &carol.address(), 5_0000_0000, 500, 1);
     assert!(pool.add(tx1));
     assert!(pool.add(tx2));
 

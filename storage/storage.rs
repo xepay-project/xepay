@@ -7,9 +7,9 @@
 // Stores the chain as bincode blobs keyed by block height. On load, blocks
 // are re-verified end-to-end before being trusted.
 
-use sled::Db;
 use crate::block::Block;
 use crate::blockchain::Blockchain;
+use sled::Db;
 
 pub struct Storage {
     db: Db,

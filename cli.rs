@@ -25,23 +25,19 @@ pub fn run(args: &[String]) {
             println!();
             println!("Save the secret hex securely. Anyone with it controls the funds.");
         }
-        ("wallet", "from") if args.len() >= 3 => {
-            match Wallet::from_secret_hex(&args[2]) {
-                Ok(w) => {
-                    println!("Address:    {}", w.address());
-                }
-                Err(e) => eprintln!("Error: {}", e),
+        ("wallet", "from") if args.len() >= 3 => match Wallet::from_secret_hex(&args[2]) {
+            Ok(w) => {
+                println!("Address:    {}", w.address());
             }
-        }
-        ("wallet", "info") if args.len() >= 3 => {
-            match Wallet::from_secret_hex(&args[2]) {
-                Ok(w) => {
-                    println!("Address:    {}", w.address());
-                    println!("Next nonce: {}", w.next_nonce);
-                }
-                Err(e) => eprintln!("Error: {}", e),
+            Err(e) => eprintln!("Error: {}", e),
+        },
+        ("wallet", "info") if args.len() >= 3 => match Wallet::from_secret_hex(&args[2]) {
+            Ok(w) => {
+                println!("Address:    {}", w.address());
+                println!("Next nonce: {}", w.next_nonce);
             }
-        }
+            Err(e) => eprintln!("Error: {}", e),
+        },
         _ => print_help(),
     }
 }

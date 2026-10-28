@@ -6,9 +6,9 @@
 // Cryptographic helpers for XEPAY (ticker: XEPY).
 // Sole hashing primitive: SHA3-256. Also provides Merkle root construction.
 
-use sha3::{Digest, Sha3_256};
-use serde::Serialize;
 use bincode;
+use serde::Serialize;
+use sha3::{Digest, Sha3_256};
 
 /// Compute a SHA3-256 hash over any serializable value.
 /// Returns the digest as a lowercase hex string.

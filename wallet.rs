@@ -10,7 +10,7 @@
 
 use ed25519_dalek::SigningKey;
 use rand::rngs::OsRng;
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, Clone)]
 pub struct Wallet {

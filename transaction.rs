@@ -9,9 +9,9 @@
 // signature covers all fields except `signature` itself, preventing any
 // post-hoc mutation of from/to/amount/fee/nonce.
 
-use serde::{Serialize, Deserialize};
-use ed25519_dalek::{Signature, Signer, SigningKey, Verifier, VerifyingKey};
 use crate::crypto::sha3_256_hash;
+use ed25519_dalek::{Signature, Signer, SigningKey, Verifier, VerifyingKey};
+use serde::{Deserialize, Serialize};
 
 /// A signed value transfer on XEPAY.
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -87,9 +87,7 @@ impl Transaction {
             Ok(b) if b.len() == 32 => b,
             _ => return false,
         };
-        let verifying_key = match VerifyingKey::from_bytes(
-            &from_bytes.try_into().unwrap(),
-        ) {
+        let verifying_key = match VerifyingKey::from_bytes(&from_bytes.try_into().unwrap()) {
             Ok(k) => k,
             Err(_) => return false,
         };
@@ -126,13 +124,7 @@ mod tests {
     fn valid_signature_passes() {
         let a = keypair();
         let b = keypair();
-        let tx = Transaction::new_signed(
-            &a,
-            &hex::encode(b.verifying_key().to_bytes()),
-            100,
-            1,
-            0,
-        );
+        let tx = Transaction::new_signed(&a, &hex::encode(b.verifying_key().to_bytes()), 100, 1, 0);
         assert!(tx.verify());
     }
 
@@ -140,13 +132,8 @@ mod tests {
     fn tampered_amount_fails() {
         let a = keypair();
         let b = keypair();
-        let mut tx = Transaction::new_signed(
-            &a,
-            &hex::encode(b.verifying_key().to_bytes()),
-            100,
-            1,
-            0,
-        );
+        let mut tx =
+            Transaction::new_signed(&a, &hex::encode(b.verifying_key().to_bytes()), 100, 1, 0);
         tx.amount = 999;
         assert!(!tx.verify());
     }
@@ -155,13 +142,8 @@ mod tests {
     fn tampered_fee_fails() {
         let a = keypair();
         let b = keypair();
-        let mut tx = Transaction::new_signed(
-            &a,
-            &hex::encode(b.verifying_key().to_bytes()),
-            100,
-            1,
-            0,
-        );
+        let mut tx =
+            Transaction::new_signed(&a, &hex::encode(b.verifying_key().to_bytes()), 100, 1, 0);
         tx.fee = 999;
         assert!(!tx.verify());
     }

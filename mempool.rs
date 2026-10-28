@@ -67,9 +67,7 @@ mod tests {
     fn rejects_invalid_signature() {
         let a = Wallet::generate();
         let b = Wallet::generate();
-        let mut tx = Transaction::new_signed(
-            &a.signing_key(), &b.address(), 100, 1, 0,
-        );
+        let mut tx = Transaction::new_signed(&a.signing_key(), &b.address(), 100, 1, 0);
         tx.amount = 999; // tamper
         let mut pool = Mempool::new();
         assert!(!pool.add(tx));
@@ -80,9 +78,27 @@ mod tests {
         let a = Wallet::generate();
         let b = Wallet::generate();
         let mut pool = Mempool::new();
-        pool.add(Transaction::new_signed(&a.signing_key(), &b.address(), 10, 1, 0));
-        pool.add(Transaction::new_signed(&a.signing_key(), &b.address(), 10, 5, 1));
-        pool.add(Transaction::new_signed(&a.signing_key(), &b.address(), 10, 3, 2));
+        pool.add(Transaction::new_signed(
+            &a.signing_key(),
+            &b.address(),
+            10,
+            1,
+            0,
+        ));
+        pool.add(Transaction::new_signed(
+            &a.signing_key(),
+            &b.address(),
+            10,
+            5,
+            1,
+        ));
+        pool.add(Transaction::new_signed(
+            &a.signing_key(),
+            &b.address(),
+            10,
+            3,
+            2,
+        ));
         let picked = pool.drain_highest_fee(2);
         assert_eq!(picked[0].fee, 5);
         assert_eq!(picked[1].fee, 3);

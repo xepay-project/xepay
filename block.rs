@@ -10,10 +10,10 @@
 //   - merkle_root is a real binary Merkle root, not a flat hash.
 //   - Each block carries exactly one coinbase transaction (reward + fees).
 
-use serde::{Serialize, Deserialize};
-use chrono::Utc;
 use crate::crypto::{merkle_root, sha3_256_hash};
 use crate::transaction::Transaction;
+use chrono::Utc;
+use serde::{Deserialize, Serialize};
 
 /// The coinbase is the first transaction in every block. It has no sender
 /// (from = "") and pays the miner's reward plus all transaction fees.
@@ -48,11 +48,7 @@ pub struct Block {
 impl Block {
     /// Construct a new (unmined) block pointing to `prev_hash`.
     /// Transactions[0] MUST be the coinbase.
-    pub fn new(
-        prev_hash: String,
-        transactions: Vec<Transaction>,
-        difficulty: u32,
-    ) -> Self {
+    pub fn new(prev_hash: String, transactions: Vec<Transaction>, difficulty: u32) -> Self {
         let timestamp = Utc::now().timestamp();
 
         // Real Merkle root over per-transaction hashes.
