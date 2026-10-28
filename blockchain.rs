@@ -3,7 +3,7 @@
 // file LICENSE or https://www.apache.org/licenses/LICENSE-2.0.
 
 // blockchain.rs
-// The XEPAY (ticker: XEPY) chain, v0.2.
+// The XEPAY (ticker: XEPY) chain, v0.3.
 
 use std::collections::HashMap;
 use crate::block::{coinbase_tx, Block};
@@ -18,7 +18,7 @@ pub const HALVING_INTERVAL: u64 = 210_000;
 pub const MTP_WINDOW: usize = 11;
 
 /// Protocol version reported in the node banner.
-pub const PROTOCOL_VERSION: &str = "0.2.1";
+pub const PROTOCOL_VERSION: &str = "0.3.0";
 /// Network identity. Testnet for now; mainnet will use a different value.
 pub const NETWORK: &str = "testnet";
 /// Chain ID prevents cross-network replay and accidental mixing of databases.
