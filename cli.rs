@@ -5,11 +5,11 @@
 // cli.rs
 // Command-line interface for XEPAY (ticker: XEPY).
 //
-// Every command opens the on-disk chain (./xepay.db), performs its action,
-// and persists the result. Errors are reported without panicking so the CLI
-// can be scripted safely.
+// All output is structured key=value through the logging module. Every
+// command opens ./xepay.db, performs its action, and persists the result.
 
 use crate::blockchain::Blockchain;
+use crate::logging::{self, fmt_amount, short};
 use crate::mempool::Mempool;
 use crate::storage::Storage;
 use crate::transaction::Transaction;
@@ -23,52 +23,44 @@ pub fn run(args: &[String]) {
         print_help();
         return;
     }
-
     let result = match (args[0].as_str(), args.get(1).map(String::as_str)) {
-        ("help", _) | ("--help", _) | ("-h", _) => {
-            print_help();
-            Ok(())
-        }
-        ("wallet", Some("new")) => cmd_wallet_new(),
-        ("wallet", Some("from")) => cmd_wallet_from(args),
-        ("wallet", Some("info")) => cmd_wallet_info(args),
-        ("chain", Some("info")) => cmd_chain_info(),
+        ("help", _) | ("--help", _) | ("-h", _) => { print_help(); Ok(()) }
+        ("wallet", Some("new"))   => cmd_wallet_new(),
+        ("wallet", Some("from"))  => cmd_wallet_from(args),
+        ("wallet", Some("info"))  => cmd_wallet_info(args),
+        ("chain", Some("info"))   => cmd_chain_info(),
         ("chain", Some("blocks")) => cmd_chain_blocks(args),
-        ("chain", Some("block")) => cmd_chain_block(args),
-        ("balance", _) => cmd_balance(args),
+        ("chain", Some("block"))  => cmd_chain_block(args),
+        ("balance", _)            => cmd_balance(args),
         ("mempool", Some("list")) => cmd_mempool_list(),
-        ("tx", Some("send")) => cmd_tx_send(args),
-        ("tx", Some("history")) => cmd_tx_history(args),
-        ("mine", _) => cmd_mine(args),
-        _ => {
-            print_help();
-            Ok(())
-        }
+        ("tx", Some("send"))      => cmd_tx_send(args),
+        ("tx", Some("history"))   => cmd_tx_history(args),
+        ("mine", _)               => cmd_mine(args),
+        _ => { print_help(); Ok(()) }
     };
-
     if let Err(e) = result {
-        eprintln!("Error: {}", e);
+        logging::error("cli_error", &[("message", e)]);
         std::process::exit(1);
     }
 }
 
 // ---------------------------------------------------------------
-// Wallet commands
+// Wallet
 // ---------------------------------------------------------------
 
 fn cmd_wallet_new() -> Result<(), String> {
     let w = Wallet::generate();
-    println!("Address:    {}", w.address());
-    println!("Secret hex: {}", w.export_secret());
+    println!("address:    {}", w.address());
+    println!("secret_hex: {}", w.export_secret());
     println!();
-    println!("Save the secret hex securely. Anyone with it controls the funds.");
+    println!("Store the secret_hex securely. Anyone with it controls the funds.");
     Ok(())
 }
 
 fn cmd_wallet_from(args: &[String]) -> Result<(), String> {
     let secret = args.get(2).ok_or("usage: xepay wallet from <secret_hex>")?;
     let w = Wallet::from_secret_hex(secret)?;
-    println!("Address: {}", w.address());
+    println!("address: {}", w.address());
     Ok(())
 }
 
@@ -79,24 +71,28 @@ fn cmd_wallet_info(args: &[String]) -> Result<(), String> {
     let addr = w.address();
     let bal = chain.balances.get(&addr).copied().unwrap_or(0);
     let nonce = chain.nonces.get(&addr).copied().unwrap_or(0);
-    println!("Address:    {}", addr);
-    println!("Balance:    {} XEPYsat", bal);
-    println!("Next nonce: {}", nonce);
+    println!("address:    {}", addr);
+    println!("balance:    {}", fmt_amount(bal));
+    println!("next_nonce: {}", nonce);
     Ok(())
 }
 
 // ---------------------------------------------------------------
-// Chain commands
+// Chain
 // ---------------------------------------------------------------
 
 fn cmd_chain_info() -> Result<(), String> {
     let chain = load_chain()?;
-    println!("Network:        XEPAY (XEPY)");
-    println!("Height:         {}", chain.height());
-    println!("Difficulty:     {}", chain.difficulty);
-    println!("Avg block time: {:.2}s", chain.average_block_time_secs());
-    println!("Tip hash:       {}", chain.tip().hash);
-    println!("Block reward:   {} XEPYsat", chain.block_reward());
+    println!("network:         XEPAY ({})", crate::blockchain::NETWORK);
+    println!("chain_id:        {}", crate::blockchain::CHAIN_ID);
+    println!("protocol:        v{}", crate::blockchain::PROTOCOL_VERSION);
+    println!("consensus:       PoW-SHA3-256");
+    println!("height:          {}", chain.height());
+    println!("difficulty:      {}", chain.difficulty);
+    println!("avg_block_time:  {:.2}s", chain.average_block_time_secs());
+    println!("target_block:    {}s", crate::blockchain::TARGET_BLOCK_TIME_SECS);
+    println!("block_reward:    {}", fmt_amount(chain.block_reward()));
+    println!("tip:             {}", chain.tip().hash);
     Ok(())
 }
 
@@ -108,12 +104,12 @@ fn cmd_chain_blocks(args: &[String]) -> Result<(), String> {
         .unwrap_or(10);
     let chain = load_chain()?;
     let start = chain.chain.len().saturating_sub(n);
-    println!("Last {} block(s):", chain.chain.len() - start);
+    println!("count={}", chain.chain.len() - start);
     for (i, b) in chain.chain.iter().enumerate().skip(start) {
         println!(
-            "  #{:>4} | hash={} | diff={} | nonce={:>10} | txs={:>3}",
+            "  height={} hash={} diff={} nonce={} txs={}",
             i,
-            &b.hash[..16],
+            short(&b.hash),
             b.header.difficulty,
             b.header.nonce,
             b.transactions.len(),
@@ -134,23 +130,27 @@ fn cmd_chain_block(args: &[String]) -> Result<(), String> {
         .get(h)
         .ok_or_else(|| format!("no block at height {}", h))?;
 
-    println!("Block #{}", h);
-    println!("  version:         {}", b.header.version);
-    println!("  timestamp:       {}", b.header.timestamp);
-    println!("  prev_block_hash: {}", b.header.prev_block_hash);
-    println!("  merkle_root:     {}", b.header.merkle_root);
-    println!("  difficulty:      {}", b.header.difficulty);
-    println!("  nonce:           {}", b.header.nonce);
-    println!("  hash:            {}", b.hash);
-    println!("  transactions:    {}", b.transactions.len());
+    println!("height:          {}", h);
+    println!("version:         {}", b.header.version);
+    println!("timestamp:       {}", b.header.timestamp);
+    println!("prev_block_hash: {}", b.header.prev_block_hash);
+    println!("merkle_root:     {}", b.header.merkle_root);
+    println!("difficulty:      {}", b.header.difficulty);
+    println!("nonce:           {}", b.header.nonce);
+    println!("hash:            {}", b.hash);
+    println!("transactions:    {}", b.transactions.len());
     for (i, tx) in b.transactions.iter().enumerate() {
-        let from = if tx.from.is_empty() { "COINBASE".to_string() } else { tx.from.clone() };
+        let from = if tx.from.is_empty() {
+            "COINBASE".to_string()
+        } else {
+            short(&tx.from)
+        };
         println!(
-            "    [{}] {} -> {} | amount={} fee={} nonce={}",
+            "  [{}] from={} to={} amount={} fee={} nonce={}",
             i,
-            &from[..from.len().min(16)],
-            &tx.to[..tx.to.len().min(16)],
-            tx.amount,
+            from,
+            short(&tx.to),
+            fmt_amount(tx.amount),
             tx.fee,
             tx.nonce,
         );
@@ -162,34 +162,40 @@ fn cmd_balance(args: &[String]) -> Result<(), String> {
     let addr = args.get(1).ok_or("usage: xepay balance <address>")?;
     let chain = load_chain()?;
     let bal = chain.balances.get(addr).copied().unwrap_or(0);
-    println!("Address: {}", addr);
-    println!("Balance: {} XEPYsat", bal);
+    println!("address: {}", addr);
+    println!("balance: {}", fmt_amount(bal));
     Ok(())
 }
 
 // ---------------------------------------------------------------
-// Mempool commands
+// Mempool
 // ---------------------------------------------------------------
 
 fn cmd_mempool_list() -> Result<(), String> {
-    let _chain = load_chain()?;
-    // The mempool is not persisted in v0.2, so we report it as empty.
-    // A future version will persist mempool alongside the chain.
-    let pool = Mempool::new();
-    println!("Mempool size: {}", pool.len());
-    if pool.is_empty() {
-        println!("(mempool is not persisted in v0.2; new txs go here per-session)");
+    let store = Storage::open(DB_PATH)?;
+    let pool = store.load_mempool()?;
+    println!("mempool_size: {}", pool.len());
+    for (i, tx) in pool.iter().enumerate() {
+        println!(
+            "  [{}] from={} to={} amount={} fee={} nonce={}",
+            i,
+            short(&tx.from),
+            short(&tx.to),
+            fmt_amount(tx.amount),
+            tx.fee,
+            tx.nonce,
+        );
     }
     Ok(())
 }
 
 // ---------------------------------------------------------------
-// Transaction commands
+// Transactions
 // ---------------------------------------------------------------
 
 fn cmd_tx_send(args: &[String]) -> Result<(), String> {
     if args.len() < 6 {
-        return Err("usage: xepay tx send <secret_hex> <to_address> <amount> <fee>".into());
+        return Err("usage: xepay tx send <secret_hex> <to_address> <amount_xepysat> <fee_xepysat>".into());
     }
     let secret = &args[2];
     let to = &args[3];
@@ -200,36 +206,43 @@ fn cmd_tx_send(args: &[String]) -> Result<(), String> {
     let chain = load_chain()?;
     let from = w.address();
 
-    // Determine the next nonce for this sender.
-    let mut nonce = chain.nonces.get(&from).copied().unwrap_or(0);
+    let nonce = chain.nonces.get(&from).copied().unwrap_or(0);
     if let Some(existing) = chain.balances.get(&from) {
         if *existing < amount + fee {
             return Err(format!(
-                "insufficient balance: have {}, need {}",
+                "insufficient_balance have={} need={}",
                 existing,
                 amount + fee
             ));
         }
     } else {
-        return Err(format!("address {} has no balance", from));
+        return Err(format!("address_has_no_balance address={}", from));
     }
-    nonce += 0; // placeholder, real increment happens when included in a block
 
     let tx = Transaction::new_signed(&w.signing_key(), to, amount, fee, nonce);
     if !tx.verify() {
-        return Err("signature verification failed".into());
+        return Err("signature_verification_failed".into());
     }
 
-    // The mempool is not persisted in v0.2. Print the signed transaction so
-    // it can be included in a future block by the mining command in the
-    // same process invocation.
-    println!("Signed transaction:");
-    println!("{}", serde_json_pretty(&tx)?);
-    println!();
-    println!("To include it in a block, use:");
-    println!("  xepay mine <secret_hex>");
-    println!();
-    println!("Note: mempool persistence is scheduled for v0.2.1.");
+    // Persist into the mempool.
+    let store = Storage::open(DB_PATH)?;
+    let mut pool = store.load_mempool()?;
+    if !pool.add(tx.clone()) {
+        return Err("mempool_rejected_transaction (duplicate or full)".into());
+    }
+    store.save_mempool(&pool)?;
+
+    logging::info(
+        "tx_submitted",
+        &[
+            ("from", from),
+            ("to", to.to_string()),
+            ("amount", fmt_amount(amount)),
+            ("fee", fmt_amount(fee)),
+            ("nonce", nonce.to_string()),
+            ("mempool_size", pool.len().to_string()),
+        ],
+    );
     Ok(())
 }
 
@@ -252,13 +265,13 @@ fn cmd_tx_history(args: &[String]) -> Result<(), String> {
                 let dir = if tx.from == *addr { "OUT" } else { "IN " };
                 let counterpart = if tx.from == *addr { &tx.to } else { &tx.from };
                 println!(
-                    "h={:>4} {} amount={:>12} fee={:>6} nonce={:>3} counterpart={}",
+                    "height={} dir={} amount={} fee={} nonce={} counterpart={}",
                     h,
                     dir,
-                    tx.amount,
+                    fmt_amount(tx.amount),
                     tx.fee,
                     tx.nonce,
-                    &counterpart[..counterpart.len().min(16)],
+                    short(counterpart),
                 );
                 found += 1;
                 if found >= n {
@@ -268,13 +281,13 @@ fn cmd_tx_history(args: &[String]) -> Result<(), String> {
         }
     }
     if found == 0 {
-        println!("No transactions found for {}", addr);
+        println!("no_transactions address={}", addr);
     }
     Ok(())
 }
 
 // ---------------------------------------------------------------
-// Mining command
+// Mining
 // ---------------------------------------------------------------
 
 fn cmd_mine(args: &[String]) -> Result<(), String> {
@@ -291,26 +304,31 @@ fn cmd_mine(args: &[String]) -> Result<(), String> {
     let miner = w.address();
 
     let mut chain = load_chain()?;
-
-    // Since the mempool is not persisted, mining here simply mines an empty
-    // block (coinbase only). A future version will load pending txs from a
-    // persisted mempool.
-    let txs: Vec<Transaction> = Vec::new();
+    let store = Storage::open(DB_PATH)?;
+    let mut pool = store.load_mempool()?;
 
     let height_before = chain.height();
-    chain.add_block(txs, &miner)?;
+    let selected = pool.drain_highest_fee(max_tx);
+    chain.add_block(selected.clone(), &miner)?;
     let new_block = chain.tip().clone();
 
-    // Persist.
-    let store = Storage::open(DB_PATH)?;
+    // Persist the new block, the updated chain, and the reduced mempool.
     store.put_block(chain.chain.len() - 1, &new_block)?;
+    store.save_chain(&chain)?;
+    store.save_mempool(&pool)?;
 
-    println!("Block mined at height {}", height_before);
-    println!("  hash:   {}", new_block.hash);
-    println!("  nonce:  {}", new_block.header.nonce);
-    println!("  txs:    {}", new_block.transactions.len());
-    println!("  fees:   {}", new_block.total_fees());
-    println!("  reward: {} XEPYsat to {}", new_block.transactions[0].amount, miner);
+    logging::info(
+        "block_mined",
+        &[
+            ("height", height_before.to_string()),
+            ("hash", short(&new_block.hash)),
+            ("nonce", new_block.header.nonce.to_string()),
+            ("txs", new_block.transactions.len().to_string()),
+            ("fees", fmt_amount(new_block.total_fees())),
+            ("reward", fmt_amount(new_block.transactions[0].amount)),
+            ("miner", short(&miner)),
+        ],
+    );
     Ok(())
 }
 
@@ -318,61 +336,71 @@ fn cmd_mine(args: &[String]) -> Result<(), String> {
 // Helpers
 // ---------------------------------------------------------------
 
-/// Load the chain from disk, or create a fresh one if no chain exists.
 fn load_chain() -> Result<Blockchain, String> {
     let store = Storage::open(DB_PATH)?;
+    store.check_chain_id()?;
     match store.restore_chain(DEFAULT_DIFFICULTY)? {
         Some(c) => Ok(c),
         None => {
             let chain = Blockchain::new(DEFAULT_DIFFICULTY);
             store.save_chain(&chain)?;
+            store.save_meta(&crate::storage::ChainMeta {
+                chain_id: crate::blockchain::CHAIN_ID.to_string(),
+                network: crate::blockchain::NETWORK.to_string(),
+                protocol_version: crate::blockchain::PROTOCOL_VERSION.to_string(),
+                difficulty: DEFAULT_DIFFICULTY,
+            })?;
             Ok(chain)
         }
     }
 }
 
-/// Minimal pretty JSON output for a Transaction (no external crate).
-fn serde_json_pretty(tx: &Transaction) -> Result<String, String> {
-    Ok(format!(
-        "{{\n  \"from\": \"{}\",\n  \"to\": \"{}\",\n  \"amount\": {},\n  \"fee\": {},\n  \"nonce\": {},\n  \"signature\": \"{}\"\n}}",
-        tx.from, tx.to, tx.amount, tx.fee, tx.nonce, tx.signature
-    ))
-}
-
 // ---------------------------------------------------------------
-// Help text
+// Help
 // ---------------------------------------------------------------
 
 fn print_help() {
-    println!("XEPAY CLI — ticker XEPY");
+    println!("XEPAY (ticker: XEPY) — CLI");
     println!();
-    println!("Usage:");
-    println!("  xepay <command> [args]");
+    println!("Usage: xepay <command> [args]");
     println!();
-    println!("Wallet:");
-    println!("  wallet new                       Generate a new wallet");
-    println!("  wallet from <secret_hex>         Import from a secret hex");
-    println!("  wallet info <secret_hex>         Show address, balance, nonce");
+    println!("WALLET");
+    println!("  wallet new");
+    println!("      Generate an ed25519 keypair; print address and secret_hex.");
+    println!("  wallet from <secret_hex>");
+    println!("      Recover the address from an existing secret_hex.");
+    println!("  wallet info <secret_hex>");
+    println!("      Print address, balance, and next nonce for the wallet.");
     println!();
-    println!("Chain:");
-    println!("  chain info                       Show height, difficulty, tip");
-    println!("  chain blocks [n]                 Show last N blocks (default 10)");
-    println!("  chain block <height>             Show one block's details");
-    println!("  balance <address>                Show balance for an address");
+    println!("CHAIN");
+    println!("  chain info");
+    println!("      Print network, chain_id, height, difficulty, and tip hash.");
+    println!("  chain blocks [n]");
+    println!("      List the last N blocks (default: 10).");
+    println!("  chain block <height>");
+    println!("      Print full details of one block.");
+    println!("  balance <address>");
+    println!("      Print the balance for an address, in XEPY and XEPYsat.");
     println!();
-    println!("Mempool:");
-    println!("  mempool list                     Show mempool contents");
+    println!("MEMPOOL");
+    println!("  mempool list");
+    println!("      Print pending transactions with their fees and nonces.");
     println!();
-    println!("Transactions:");
-    println!("  tx send <secret> <to> <amount> <fee>   Sign a transaction");
-    println!("  tx history <address> [n]               Show recent history");
+    println!("TRANSACTIONS");
+    println!("  tx send <secret_hex> <to_address> <amount_xepysat> <fee_xepysat>");
+    println!("      Sign a transaction and enqueue it in the mempool.");
+    println!("  tx history <address> [n]");
+    println!("      Print the last N on-chain transactions for an address.");
     println!();
-    println!("Mining:");
-    println!("  mine <secret_hex> [max_tx]       Mine a block, reward to address");
+    println!("MINING");
+    println!("  mine <secret_hex> [max_tx]");
+    println!("      Mine one block from the mempool, credit the coinbase to");
+    println!("      the secret_hex's address, and persist the result.");
     println!();
-    println!("Examples:");
-    println!("  xepay wallet new");
-    println!("  xepay chain info");
-    println!("  xepay chain blocks 5");
-    println!("  xepay mine <secret_hex>");
+    println!("UNITS");
+    println!("  1 XEPY = 100000000 XEPYsat");
+    println!("  All <amount> and <fee> arguments are in XEPYsat.");
+    println!();
+    println!("LOGGING");
+    println!("  Set XEPAY_LOG=debug|info|warn|error|quiet to control verbosity.");
 }
