@@ -6,25 +6,26 @@
 // Entry point for the XEPAY (ticker: XEPY) blockchain, v0.2.
 //
 // Two modes:
-//   xepay run            — run the end-to-end demo (default)
-//   xepay wallet <...>   — CLI wallet (see cli.rs)
+//   xepay                — run the end-to-end demo (default, no arguments)
+//   xepay run            — run the end-to-end demo
+//   xepay <command> ...  — dispatch a CLI command (see cli.rs)
 
-#[path = "block.rs"]
-mod block;
-#[path = "blockchain.rs"]
-mod blockchain;
-#[path = "cli.rs"]
-mod cli;
 #[path = "crypto.rs"]
 mod crypto;
-#[path = "mempool.rs"]
-mod mempool;
-#[path = "storage/storage.rs"]
-mod storage;
 #[path = "transaction.rs"]
 mod transaction;
 #[path = "wallet.rs"]
 mod wallet;
+#[path = "mempool.rs"]
+mod mempool;
+#[path = "block.rs"]
+mod block;
+#[path = "blockchain.rs"]
+mod blockchain;
+#[path = "storage/storage.rs"]
+mod storage;
+#[path = "cli.rs"]
+mod cli;
 
 use blockchain::Blockchain;
 use mempool::Mempool;
@@ -34,7 +35,11 @@ use wallet::Wallet;
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
 
-    if args.first().map(String::as_str) == Some("wallet") {
+    // Route to the CLI unless the caller explicitly asked for the demo.
+    // No arguments or the literal `run` triggers the demo; anything else
+    // is forwarded to the CLI dispatcher.
+    let is_demo = args.is_empty() || args.first().map(String::as_str) == Some("run");
+    if !is_demo {
         cli::run(&args);
         return;
     }
@@ -42,16 +47,24 @@ fn main() {
     run_demo();
 }
 
+/// Run the end-to-end demonstration.
+///
+/// The demonstration performs the following sequence:
+///   1. Prints a banner identifying the network and target block time.
+///   2. Creates three wallets (alice, bob, carol) for illustrative purposes.
+///   3. Mines a coinbase block paying alice, then reports her balance.
+///   4. Builds a mempool with two signed transactions from alice.
+///   5. Mines a block selecting the highest-fee transactions, paying bob.
+///   6. Persists the chain to ./xepay.db and restores it to verify integrity.
+///   7. Prints a summary of chain integrity, height, average block time,
+///      and final balances.
 fn run_demo() {
-    println!("==============================================");
-    println!("   XEPAY (ticker: XEPY) — v0.2 Demo Chain");
-    println!("   Target block time: ~15 seconds");
-    println!("==============================================\n");
+    print_banner();
 
     let difficulty = 3;
     let mut chain = Blockchain::new(difficulty);
 
-    // Create a few wallets for the demo.
+    // Create three wallets for the demonstration.
     let alice = Wallet::generate();
     let bob = Wallet::generate();
     let carol = Wallet::generate();
@@ -59,22 +72,35 @@ fn run_demo() {
     println!("[XEPY] bob:   {}", bob.address());
     println!("[XEPY] carol: {}\n", carol.address());
 
-    // Fund alice with a coinbase by mining the first block for her.
+    // Fund alice by mining a coinbase block addressed to her.
     chain.add_block(vec![], &alice.address()).unwrap();
     println!(
         "[XEPY] Alice funded; balance = {}\n",
         chain.balances.get(&alice.address()).copied().unwrap_or(0)
     );
 
-    // Build a mempool with two fee-paying transactions from alice.
+    // Build a mempool containing two fee-paying transactions from alice.
+    // The fees differ so the fee-based selection is observable in the output.
     let mut pool = Mempool::new();
-    let tx1 = Transaction::new_signed(&alice.signing_key(), &bob.address(), 10_0000_0000, 100, 0);
-    let tx2 = Transaction::new_signed(&alice.signing_key(), &carol.address(), 5_0000_0000, 500, 1);
+    let tx1 = Transaction::new_signed(
+        &alice.signing_key(),
+        &bob.address(),
+        10_0000_0000,
+        100,
+        0,
+    );
+    let tx2 = Transaction::new_signed(
+        &alice.signing_key(),
+        &carol.address(),
+        5_0000_0000,
+        500,
+        1,
+    );
     assert!(pool.add(tx1));
     assert!(pool.add(tx2));
 
-    // Mine one block selecting up to 10 txs, paying fees to bob.
-    // The mempool emptiness check is a real guard: an empty mempool still
+    // Mine a block selecting up to ten transactions, paying fees to bob.
+    // The emptiness check is a genuine guard: an empty mempool still
     // produces a valid block containing only the coinbase.
     if pool.is_empty() {
         println!("[XEPY] Mempool empty; mining empty block.");
@@ -90,7 +116,9 @@ fn run_demo() {
         chain.tip().total_fees()
     );
 
-    // Persist the chain to disk.
+    // Persist the chain to disk and immediately restore it. Restoration
+    // re-verifies every block, so a successful restore is a functional
+    // integrity check as well as a persistence check.
     {
         let store = storage::Storage::open("xepay.db").unwrap();
         store.save_chain(&chain).unwrap();
@@ -100,7 +128,7 @@ fn run_demo() {
         println!("[XEPY] Restored chain height = {}\n", restored.height());
     }
 
-    // Report.
+    // Emit the final report.
     println!("Chain integrity: {}", chain.is_valid());
     println!("Total blocks:    {}", chain.height());
     println!("Avg block time:  {:.2}s", chain.average_block_time_secs());
@@ -111,4 +139,12 @@ fn run_demo() {
     }
     println!();
     println!("[XEPY] Demo concluded.");
+}
+
+/// Print the banner and the educational disclaimer.
+fn print_banner() {
+    println!("==============================================");
+    println!("   XEPAY (ticker: XEPY) — v0.2 Demo Chain");
+    println!("   Target block time: ~15 seconds");
+    println!("==============================================\n");
 }
