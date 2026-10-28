@@ -3,13 +3,15 @@
 // file LICENSE or https://www.apache.org/licenses/LICENSE-2.0.
 
 // xepay.rs
-// Entry point for the XEPAY (ticker: XEPY) blockchain, v0.2.
+// Entry point for the XEPAY (ticker: XEPY) blockchain, v0.2.1.
 //
 // Two modes:
-//   xepay                — run the end-to-end demo (default, no arguments)
-//   xepay run            — run the end-to-end demo
+//   xepay                — run the end-to-end smoke test
+//   xepay run            — run the end-to-end smoke test
 //   xepay <command> ...  — dispatch a CLI command (see cli.rs)
 
+#[path = "logging.rs"]
+mod logging;
 #[path = "crypto.rs"]
 mod crypto;
 #[path = "transaction.rs"]
@@ -28,123 +30,152 @@ mod storage;
 mod cli;
 
 use blockchain::Blockchain;
+use logging::{fmt_amount, info, short};
 use mempool::Mempool;
+use storage::Storage;
 use transaction::Transaction;
 use wallet::Wallet;
 
 fn main() {
+    logging::init();
     let args: Vec<String> = std::env::args().skip(1).collect();
 
-    // Route to the CLI unless the caller explicitly asked for the demo.
-    // No arguments or the literal `run` triggers the demo; anything else
-    // is forwarded to the CLI dispatcher.
-    let is_demo = args.is_empty() || args.first().map(String::as_str) == Some("run");
-    if !is_demo {
+    let is_smoke = args.is_empty() || args.first().map(String::as_str) == Some("run");
+    if !is_smoke {
         cli::run(&args);
         return;
     }
 
-    run_demo();
+    run_smoke_test();
 }
 
-/// Run the end-to-end demonstration.
+/// Run the end-to-end smoke test.
 ///
-/// The demonstration performs the following sequence:
-///   1. Prints a banner identifying the network and target block time.
-///   2. Creates three wallets (alice, bob, carol) for illustrative purposes.
-///   3. Mines a coinbase block paying alice, then reports her balance.
-///   4. Builds a mempool with two signed transactions from alice.
-///   5. Mines a block selecting the highest-fee transactions, paying bob.
-///   6. Persists the chain to ./xepay.db and restores it to verify integrity.
-///   7. Prints a summary of chain integrity, height, average block time,
-///      and final balances.
-fn run_demo() {
+/// Sequence:
+///   1. Print node banner with network, chain_id, protocol version.
+///   2. Generate three wallets: miner, treasury, recipient.
+///   3. Mine a coinbase block paying the miner, report credit.
+///   4. Build a mempool with two signed transactions from the miner.
+///   5. Mine a block selecting the highest-fee transactions, paying the miner.
+///   6. Persist chain and mempool to ./xepay.db.
+///   7. Restore the chain and verify integrity.
+///   8. Print final balances and average block time.
+fn run_smoke_test() {
+    let started = std::time::Instant::now();
     print_banner();
 
     let difficulty = 3;
     let mut chain = Blockchain::new(difficulty);
+    let store = Storage::open("xepay.db").expect("open db");
 
-    // Create three wallets for the demonstration.
-    let alice = Wallet::generate();
-    let bob = Wallet::generate();
-    let carol = Wallet::generate();
-    println!("[XEPY] alice: {}", alice.address());
-    println!("[XEPY] bob:   {}", bob.address());
-    println!("[XEPY] carol: {}\n", carol.address());
+    // Persist metadata on first run so future invocations can verify chain_id.
+    if store.load_meta().ok().flatten().is_none() {
+        let _ = store.save_meta(&storage::ChainMeta {
+            chain_id: blockchain::CHAIN_ID.to_string(),
+            network: blockchain::NETWORK.to_string(),
+            protocol_version: blockchain::PROTOCOL_VERSION.to_string(),
+            difficulty,
+        });
+    }
 
-    // Fund alice by mining a coinbase block addressed to her.
-    chain.add_block(vec![], &alice.address()).unwrap();
-    println!(
-        "[XEPY] Alice funded; balance = {}\n",
-        chain.balances.get(&alice.address()).copied().unwrap_or(0)
-    );
+    info("genesis_initialized", &[
+        ("height", chain.height().to_string()),
+        ("hash", short(&chain.tip().hash)),
+    ]);
 
-    // Build a mempool containing two fee-paying transactions from alice.
-    // The fees differ so the fee-based selection is observable in the output.
+    // Create three wallets with functional roles.
+    let miner = Wallet::generate();
+    let treasury = Wallet::generate();
+    let recipient = Wallet::generate();
+    info("wallet_generated", &[("role", "miner".into()), ("address", miner.address())]);
+    info("wallet_generated", &[("role", "treasury".into()), ("address", treasury.address())]);
+    info("wallet_generated", &[("role", "recipient".into()), ("address", recipient.address())]);
+
+    // Mine a coinbase block paying the miner.
+    chain.add_block(vec![], &miner.address()).unwrap();
+    store.put_block(chain.chain.len() - 1, chain.tip()).unwrap();
+    let miner_bal = chain.balances.get(&miner.address()).copied().unwrap_or(0);
+    info("coinbase_credited", &[
+        ("address", short(&miner.address())),
+        ("amount", fmt_amount(miner_bal)),
+    ]);
+
+    // Build a mempool with two signed transactions from the miner.
     let mut pool = Mempool::new();
     let tx1 = Transaction::new_signed(
-        &alice.signing_key(),
-        &bob.address(),
-        10_0000_0000,
-        100,
-        0,
+        &miner.signing_key(), &treasury.address(), 10_0000_0000, 100, 0,
     );
     let tx2 = Transaction::new_signed(
-        &alice.signing_key(),
-        &carol.address(),
-        5_0000_0000,
-        500,
-        1,
+        &miner.signing_key(), &recipient.address(), 5_0000_0000, 500, 1,
     );
     assert!(pool.add(tx1));
     assert!(pool.add(tx2));
+    info("mempool_size", &[("count", pool.len().to_string())]);
 
-    // Mine a block selecting up to ten transactions, paying fees to bob.
-    // The emptiness check is a genuine guard: an empty mempool still
-    // produces a valid block containing only the coinbase.
-    if pool.is_empty() {
-        println!("[XEPY] Mempool empty; mining empty block.");
-    } else {
-        println!("[XEPY] Mempool size = {}", pool.len());
-    }
-
+    // Mine a block selecting the highest-fee transactions, paying the miner.
     let picked = pool.drain_highest_fee(10);
-    chain.add_block(picked, &bob.address()).unwrap();
-    println!(
-        "[XEPY] Block mined; height = {}; fees = {}\n",
-        chain.height(),
-        chain.tip().total_fees()
-    );
+    chain.add_block(picked, &miner.address()).unwrap();
+    let new_block = chain.tip().clone();
+    store.put_block(chain.chain.len() - 1, &new_block).unwrap();
+    store.save_chain(&chain).unwrap();
+    store.save_mempool(&pool).unwrap();
 
-    // Persist the chain to disk and immediately restore it. Restoration
-    // re-verifies every block, so a successful restore is a functional
-    // integrity check as well as a persistence check.
-    {
-        let store = storage::Storage::open("xepay.db").unwrap();
-        store.save_chain(&chain).unwrap();
-        println!("[XEPY] Chain persisted to xepay.db");
+    info("block_mined", &[
+        ("height", (chain.height() - 1).to_string()),
+        ("hash", short(&new_block.hash)),
+        ("nonce", new_block.header.nonce.to_string()),
+        ("txs", new_block.transactions.len().to_string()),
+        ("fees", fmt_amount(new_block.total_fees())),
+        ("reward", fmt_amount(new_block.transactions[0].amount)),
+    ]);
 
-        let restored = store.restore_chain(difficulty).unwrap().unwrap();
-        println!("[XEPY] Restored chain height = {}\n", restored.height());
+    // Restore and verify.
+    match store.restore_chain(difficulty) {
+        Ok(Some(restored)) => {
+            info("chain_restored", &[
+                ("height", restored.height().to_string()),
+                ("valid", restored.is_valid().to_string()),
+            ]);
+        }
+        _ => {
+            logging::error("chain_restore_failed", &[("path", "xepay.db".into())]);
+        }
     }
 
-    // Emit the final report.
-    println!("Chain integrity: {}", chain.is_valid());
-    println!("Total blocks:    {}", chain.height());
-    println!("Avg block time:  {:.2}s", chain.average_block_time_secs());
+    // Final report.
+    info("chain_state", &[
+        ("height", chain.height().to_string()),
+        ("valid", chain.is_valid().to_string()),
+        ("avg_block_time_s", format!("{:.2}", chain.average_block_time_secs())),
+        ("target_s", blockchain::TARGET_BLOCK_TIME_SECS.to_string()),
+    ]);
+
     println!();
-    println!("Balances:");
-    for (addr, bal) in &chain.balances {
-        println!("  {}: {}", &addr[..16], bal);
+    println!("balances:");
+    let mut addrs: Vec<_> = chain.balances.iter().collect();
+    addrs.sort_by_key(|(_, b)| std::cmp::Reverse(**b));
+    for (addr, bal) in addrs {
+        println!("  {}  {}", &addr[..16], fmt_amount(*bal));
     }
+
     println!();
-    println!("[XEPY] Demo concluded.");
+    info("smoke_test_completed", &[
+        ("duration_s", format!("{:.2}", started.elapsed().as_secs_f64())),
+    ]);
 }
 
-/// Print the banner and the educational disclaimer.
+/// Print the node banner with network identity and runtime parameters.
 fn print_banner() {
-    println!("==============================================");
-    println!("   XEPAY (ticker: XEPY) — v0.2 Demo Chain");
-    println!("   Target block time: ~15 seconds");
-    println!("==============================================\n");
+    println!("==============================================================");
+    println!("  XEPAY TESTNET NODE");
+    println!("  version:     v{}", blockchain::PROTOCOL_VERSION);
+    println!("  network:     {}", blockchain::NETWORK);
+    println!("  chain_id:    {}", blockchain::CHAIN_ID);
+    println!("  ticker:      XEPY");
+    println!("  consensus:   PoW-SHA3-256");
+    println!("  base_unit:   XEPYsat (1 XEPY = 100000000 XEPYsat)");
+    println!("  block_time:  {}s (target)", blockchain::TARGET_BLOCK_TIME_SECS);
+    println!("  difficulty:  3");
+    println!("==============================================================");
+    println!();
 }
