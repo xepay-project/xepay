@@ -17,6 +17,8 @@ use crate::wallet::Wallet;
 
 const DB_PATH: &str = "xepay.db";
 const DEFAULT_DIFFICULTY: u32 = 3;
+const DEFAULT_FEE_XEPYSAT: u64 = 100;
+const XEPYSAT_PER_XEPY: u64 = 100_000_000;
 
 pub fn run(args: &[String]) {
     if args.is_empty() {
@@ -25,17 +27,21 @@ pub fn run(args: &[String]) {
     }
     let result = match (args[0].as_str(), args.get(1).map(String::as_str)) {
         ("help", _) | ("--help", _) | ("-h", _) => { print_help(); Ok(()) }
-        ("wallet", Some("new"))   => cmd_wallet_new(),
-        ("wallet", Some("from"))  => cmd_wallet_from(args),
-        ("wallet", Some("info"))  => cmd_wallet_info(args),
-        ("chain", Some("info"))   => cmd_chain_info(),
-        ("chain", Some("blocks")) => cmd_chain_blocks(args),
-        ("chain", Some("block"))  => cmd_chain_block(args),
-        ("balance", _)            => cmd_balance(args),
-        ("mempool", Some("list")) => cmd_mempool_list(),
-        ("tx", Some("send"))      => cmd_tx_send(args),
-        ("tx", Some("history"))   => cmd_tx_history(args),
-        ("mine", _)               => cmd_mine(args),
+        ("wallet", Some("new"))    => cmd_wallet_new(),
+        ("wallet", Some("from"))   => cmd_wallet_from(args),
+        ("wallet", Some("info"))   => cmd_wallet_info(args),
+        ("wallet", Some("use"))    => cmd_wallet_use(args),
+        ("wallet", Some("active")) => cmd_wallet_active(),
+        ("wallet", Some("clear"))  => cmd_wallet_clear(),
+        ("sendtoaddress", _)       => cmd_sendtoaddress(args),
+        ("chain", Some("info"))    => cmd_chain_info(),
+        ("chain", Some("blocks"))  => cmd_chain_blocks(args),
+        ("chain", Some("block"))   => cmd_chain_block(args),
+        ("balance", _)             => cmd_balance(args),
+        ("mempool", Some("list"))  => cmd_mempool_list(),
+        ("tx", Some("send"))       => cmd_tx_send(args),
+        ("tx", Some("history"))    => cmd_tx_history(args),
+        ("mine", _)                => cmd_mine(args),
         _ => { print_help(); Ok(()) }
     };
     if let Err(e) = result {
@@ -74,6 +80,217 @@ fn cmd_wallet_info(args: &[String]) -> Result<(), String> {
     println!("address:    {}", addr);
     println!("balance:    {}", fmt_amount(bal));
     println!("next_nonce: {}", nonce);
+    Ok(())
+}
+
+fn cmd_wallet_use(args: &[String]) -> Result<(), String> {
+    let secret = args.get(2).ok_or("usage: xepay wallet use <secret_hex>")?;
+    let w = Wallet::from_secret_hex(secret)?;
+    let store = Storage::open(DB_PATH)?;
+    store.save_active_wallet(secret)?;
+    logging::info("wallet_active_set", &[("address", w.address())]);
+    Ok(())
+}
+
+fn cmd_wallet_active() -> Result<(), String> {
+    let store = Storage::open(DB_PATH)?;
+    match store.load_active_wallet()? {
+        Some(secret) => {
+            let w = Wallet::from_secret_hex(&secret)?;
+            let chain = load_chain()?;
+            let addr = w.address();
+            let bal = chain.balances.get(&addr).copied().unwrap_or(0);
+            println!("address: {}", addr);
+            println!("balance: {}", fmt_amount(bal));
+        }
+        None => {
+            println!("no_active_wallet");
+            println!("(run `xepay wallet use <secret_hex>` to set one)");
+        }
+    }
+    Ok(())
+}
+
+fn cmd_wallet_clear() -> Result<(), String> {
+    let store = Storage::open(DB_PATH)?;
+    store.clear_active_wallet()?;
+    logging::info("wallet_active_cleared", &[]);
+    Ok(())
+}
+
+// ---------------------------------------------------------------
+// sendtoaddress — one-shot transfer with auto-mine
+// ---------------------------------------------------------------
+
+fn cmd_sendtoaddress(args: &[String]) -> Result<(), String> {
+    // Parse: xepay sendtoaddress [--from <secret>] [--unit xepy|xepysat]
+    //        [--fee <n>] [--no-mine] <amount> <to_address>
+    let mut from_secret: Option<String> = None;
+    let mut unit = "xepy".to_string();
+    let mut fee: u64 = DEFAULT_FEE_XEPYSAT;
+    let mut auto_mine = true;
+    let mut positional: Vec<String> = Vec::new();
+
+    let mut i = 1;
+    while i < args.len() {
+        match args[i].as_str() {
+            "--from" => {
+                from_secret = Some(
+                    args.get(i + 1)
+                        .ok_or("--from requires a secret_hex argument")?
+                        .clone(),
+                );
+                i += 2;
+            }
+            "--unit" => {
+                unit = args
+                    .get(i + 1)
+                    .ok_or("--unit requires 'xepy' or 'xepysat'")?
+                    .clone();
+                i += 2;
+            }
+            "--fee" => {
+                fee = args
+                    .get(i + 1)
+                    .ok_or("--fee requires a number (XEPYsat)")?
+                    .parse()
+                    .map_err(|_| "invalid --fee".to_string())?;
+                i += 2;
+            }
+            "--no-mine" => {
+                auto_mine = false;
+                i += 1;
+            }
+            other => {
+                positional.push(other.to_string());
+                i += 1;
+            }
+        }
+    }
+
+    if positional.len() < 2 {
+        return Err(
+            "usage: xepay sendtoaddress [--from <secret>] [--unit xepy|xepysat] \
+             [--fee <xepysat>] [--no-mine] <amount> <to_address>"
+                .into(),
+        );
+    }
+    let amount_str = &positional[0];
+    let to = &positional[1];
+
+    // Resolve the sender wallet.
+    let secret = match from_secret {
+        Some(s) => s,
+        None => {
+            let store = Storage::open(DB_PATH)?;
+            store
+                .load_active_wallet()?
+                .ok_or("no_wallet: pass --from <secret_hex> or run `xepay wallet use <secret_hex>`")?
+        }
+    };
+    let sender = Wallet::from_secret_hex(&secret)?;
+    let from_addr = sender.address();
+
+    // Resolve amount into XEPYsat.
+    let amount_xepysat: u64 = match unit.as_str() {
+        "xepy" => {
+            let xepy: f64 = amount_str
+                .parse()
+                .map_err(|_| "invalid amount (XEPY)".to_string())?;
+            if xepy <= 0.0 {
+                return Err("amount must be positive".into());
+            }
+            (xepy * XEPYSAT_PER_XEPY as f64).round() as u64
+        }
+        "xepysat" => amount_str
+            .parse()
+            .map_err(|_| "invalid amount (XEPYsat)".to_string())?,
+        other => return Err(format!("unknown --unit '{}'", other)),
+    };
+    if amount_xepysat == 0 {
+        return Err("amount must be greater than zero".into());
+    }
+
+    // Load chain and check balance.
+    let mut chain = load_chain()?;
+    let store = Storage::open(DB_PATH)?;
+    let available = chain.balances.get(&from_addr).copied().unwrap_or(0);
+    let needed = amount_xepysat.saturating_add(fee);
+    if available < needed {
+        return Err(format!(
+            "insufficient_balance available={} needed={}",
+            available, needed
+        ));
+    }
+
+    // Build, sign, verify.
+    let nonce = chain.nonces.get(&from_addr).copied().unwrap_or(0);
+    let tx = Transaction::new_signed(&sender.signing_key(), to, amount_xepysat, fee, nonce);
+    if !tx.verify() {
+        return Err("signature_verification_failed".into());
+    }
+
+    // Enqueue in the mempool.
+    let mut pool = store.load_mempool()?;
+    if !pool.add(tx.clone()) {
+        return Err("mempool_rejected_transaction (duplicate or full)".into());
+    }
+    store.save_mempool(&pool)?;
+
+    logging::info(
+        "tx_submitted",
+        &[
+            ("from", from_addr.clone()),
+            ("to", to.to_string()),
+            ("amount", fmt_amount(amount_xepysat)),
+            ("fee", fmt_amount(fee)),
+            ("nonce", nonce.to_string()),
+            ("mempool_size", pool.len().to_string()),
+        ],
+    );
+
+    if !auto_mine {
+        logging::info("tx_in_mempool", &[
+            ("note", "run `xepay mine <secret_hex>` to confirm".to_string()),
+        ]);
+        return Ok(());
+    }
+
+    // Auto-mine: select all mempool txs, mine a block, pay the miner.
+    let height_before = chain.height();
+    let selected = pool.drain_highest_fee(10_000);
+    chain.add_block(selected, &from_addr)?;
+    let new_block = chain.tip().clone();
+
+    store.put_block(chain.chain.len() - 1, &new_block)?;
+    store.save_chain(&chain)?;
+    store.save_mempool(&pool)?;
+
+    logging::info(
+        "block_mined",
+        &[
+            ("height", height_before.to_string()),
+            ("hash", short(&new_block.hash)),
+            ("nonce", new_block.header.nonce.to_string()),
+            ("txs", new_block.transactions.len().to_string()),
+            ("fees", fmt_amount(new_block.total_fees())),
+            ("reward", fmt_amount(new_block.transactions[0].amount)),
+            ("miner", short(&from_addr)),
+        ],
+    );
+
+    let from_after = chain.balances.get(&from_addr).copied().unwrap_or(0);
+    let to_after = chain.balances.get(to).copied().unwrap_or(0);
+    logging::info(
+        "transfer_confirmed",
+        &[
+            ("txid", short(&new_block.hash)),
+            ("height", height_before.to_string()),
+            ("confirmations", "1".to_string()),
+        ],
+    );
+    println!("  from={} balance_after={}", short(&from_addr), fmt_amount(from_after));
+    println!("  to={}   balance_after={}", short(to), fmt_amount(to_after));
     Ok(())
 }
 
@@ -224,7 +441,6 @@ fn cmd_tx_send(args: &[String]) -> Result<(), String> {
         return Err("signature_verification_failed".into());
     }
 
-    // Persist into the mempool.
     let store = Storage::open(DB_PATH)?;
     let mut pool = store.load_mempool()?;
     if !pool.add(tx.clone()) {
@@ -312,7 +528,6 @@ fn cmd_mine(args: &[String]) -> Result<(), String> {
     chain.add_block(selected.clone(), &miner)?;
     let new_block = chain.tip().clone();
 
-    // Persist the new block, the updated chain, and the reduced mempool.
     store.put_block(chain.chain.len() - 1, &new_block)?;
     store.save_chain(&chain)?;
     store.save_mempool(&pool)?;
@@ -371,6 +586,23 @@ fn print_help() {
     println!("      Recover the address from an existing secret_hex.");
     println!("  wallet info <secret_hex>");
     println!("      Print address, balance, and next nonce for the wallet.");
+    println!("  wallet use <secret_hex>");
+    println!("      Set the active wallet in ./xepay.db (used by sendtoaddress).");
+    println!("  wallet active");
+    println!("      Print the active wallet's address and balance.");
+    println!("  wallet clear");
+    println!("      Forget the active wallet.");
+    println!();
+    println!("SEND");
+    println!("  sendtoaddress [options] <amount> <to_address>");
+    println!("      Sign, enqueue, and (by default) mine a block containing");
+    println!("      the transfer. Default unit is XEPY; use --unit xepysat");
+    println!("      for raw smallest units.");
+    println!("      Options:");
+    println!("        --from <secret_hex>   use this wallet instead of the active one");
+    println!("        --unit xepy|xepysat   unit for <amount> (default: xepy)");
+    println!("        --fee <xepysat>       miner fee (default: {})", DEFAULT_FEE_XEPYSAT);
+    println!("        --no-mine             leave the tx in the mempool");
     println!();
     println!("CHAIN");
     println!("  chain info");
@@ -386,9 +618,9 @@ fn print_help() {
     println!("  mempool list");
     println!("      Print pending transactions with their fees and nonces.");
     println!();
-    println!("TRANSACTIONS");
+    println!("LOW-LEVEL TRANSACTIONS");
     println!("  tx send <secret_hex> <to_address> <amount_xepysat> <fee_xepysat>");
-    println!("      Sign a transaction and enqueue it in the mempool.");
+    println!("      Sign a transaction and enqueue it (no auto-mine).");
     println!("  tx history <address> [n]");
     println!("      Print the last N on-chain transactions for an address.");
     println!();
@@ -398,8 +630,9 @@ fn print_help() {
     println!("      the secret_hex's address, and persist the result.");
     println!();
     println!("UNITS");
-    println!("  1 XEPY = 100000000 XEPYsat");
-    println!("  All <amount> and <fee> arguments are in XEPYsat.");
+    println!("  1 XEPY = {} XEPYsat", XEPYSAT_PER_XEPY);
+    println!("  `tx send` and `--fee` always use XEPYsat.");
+    println!("  `sendtoaddress` defaults to XEPY; use --unit xepysat for raw.");
     println!();
     println!("LOGGING");
     println!("  Set XEPAY_LOG=debug|info|warn|error|quiet to control verbosity.");
