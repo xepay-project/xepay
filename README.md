@@ -333,12 +333,6 @@ auditable.
 
 ## Design Decisions
 
-**Why not `src/main.rs`?** The consensus core is small and flat by design.
-`[[bin]] path = "xepay.rs"` plus `#[path = "..."] mod ...;` keeps the entire
-core readable in one sitting — a deliberate choice for auditability during
-pre-testnet development. In v1.0, the code will be reorganized into `src/`
-with proper module boundaries.
-
 **Why SHA3-256 and not SHA-256?** Both are secure. SHA3-256 belongs to a
 different construction family (Keccak sponge vs. Merkle–Damgård), giving
 XEPAY a distinct hash identity and insulation from any future cryptanalytic
