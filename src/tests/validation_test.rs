@@ -168,6 +168,8 @@ fn block_with_invalid_mined_for_is_rejected() {
     with_temp_datadir(|| {
         let mut chain = Blockchain::new();
         let prev = chain.chain.last().unwrap().clone();
+        
+        // BITCOIN-GRADE: new_for returns Result. Unwrap it for tests.
         let mut b = Block::new_for(
             prev.index + 1,
             prev.hash.clone(),
@@ -178,7 +180,8 @@ fn block_with_invalid_mined_for_is_rejected() {
             "not-an-address".to_string(),
             String::new(),
             prev.chainwork,
-        );
+        ).expect("failed to create block in test");
+
         b.hash = b.calculate_hash();
         let err = validation::validate_block(&mut chain, &prev, &b);
         assert!(err.is_err());
@@ -193,6 +196,8 @@ fn block_with_inconsistent_coinbase_is_rejected() {
         let mut chain = Blockchain::new();
         let prev = chain.chain.last().unwrap().clone();
         let addr = dummy_address();
+        
+        // BITCOIN-GRADE: new_for returns Result. Unwrap it for tests.
         let mut b = Block::new_for(
             prev.index + 1,
             prev.hash.clone(),
@@ -203,7 +208,8 @@ fn block_with_inconsistent_coinbase_is_rejected() {
             addr.clone(),
             String::new(),
             prev.chainwork,
-        );
+        ).expect("failed to create block in test");
+
         b.coinbase_txid = "00".repeat(32);
         b.hash = b.calculate_hash();
         let err = validation::validate_block(&mut chain, &prev, &b);
