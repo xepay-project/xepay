@@ -3,7 +3,7 @@
 // file LICENSE or https://www.apache.org/licenses/LICENSE-2.0.
 
 // xepay.rs
-// Entry point for the XEPAY (ticker: XEPY) blockchain, v0.2.1.
+// Entry point for the XEPAY (ticker: XEPY) blockchain, v0.3.0.
 //
 // Two modes:
 //   xepay                — run the end-to-end smoke test
@@ -50,16 +50,6 @@ fn main() {
 }
 
 /// Run the end-to-end smoke test.
-///
-/// Sequence:
-///   1. Print node banner with network, chain_id, protocol version.
-///   2. Generate three wallets: miner, treasury, recipient.
-///   3. Mine a coinbase block paying the miner, report credit.
-///   4. Build a mempool with two signed transactions from the miner.
-///   5. Mine a block selecting the highest-fee transactions, paying the miner.
-///   6. Persist chain and mempool to ./xepay.db.
-///   7. Restore the chain and verify integrity.
-///   8. Print final balances and average block time.
 fn run_smoke_test() {
     let started = std::time::Instant::now();
     print_banner();
@@ -68,7 +58,6 @@ fn run_smoke_test() {
     let mut chain = Blockchain::new(difficulty);
     let store = Storage::open("xepay.db").expect("open db");
 
-    // Persist metadata on first run so future invocations can verify chain_id.
     if store.load_meta().ok().flatten().is_none() {
         let _ = store.save_meta(&storage::ChainMeta {
             chain_id: blockchain::CHAIN_ID.to_string(),
@@ -83,7 +72,6 @@ fn run_smoke_test() {
         ("hash", short(&chain.tip().hash)),
     ]);
 
-    // Create three wallets with functional roles.
     let miner = Wallet::generate();
     let treasury = Wallet::generate();
     let recipient = Wallet::generate();
@@ -91,7 +79,6 @@ fn run_smoke_test() {
     info("wallet_generated", &[("role", "treasury".into()), ("address", treasury.address())]);
     info("wallet_generated", &[("role", "recipient".into()), ("address", recipient.address())]);
 
-    // Mine a coinbase block paying the miner.
     chain.add_block(vec![], &miner.address()).unwrap();
     store.put_block(chain.chain.len() - 1, chain.tip()).unwrap();
     let miner_bal = chain.balances.get(&miner.address()).copied().unwrap_or(0);
@@ -100,7 +87,6 @@ fn run_smoke_test() {
         ("amount", fmt_amount(miner_bal)),
     ]);
 
-    // Build a mempool with two signed transactions from the miner.
     let mut pool = Mempool::new();
     let tx1 = Transaction::new_signed(
         &miner.signing_key(), &treasury.address(), 10_0000_0000, 100, 0,
@@ -112,7 +98,6 @@ fn run_smoke_test() {
     assert!(pool.add(tx2));
     info("mempool_size", &[("count", pool.len().to_string())]);
 
-    // Mine a block selecting the highest-fee transactions, paying the miner.
     let picked = pool.drain_highest_fee(10);
     chain.add_block(picked, &miner.address()).unwrap();
     let new_block = chain.tip().clone();
@@ -129,7 +114,6 @@ fn run_smoke_test() {
         ("reward", fmt_amount(new_block.transactions[0].amount)),
     ]);
 
-    // Restore and verify.
     match store.restore_chain(difficulty) {
         Ok(Some(restored)) => {
             info("chain_restored", &[
@@ -142,7 +126,6 @@ fn run_smoke_test() {
         }
     }
 
-    // Final report.
     info("chain_state", &[
         ("height", chain.height().to_string()),
         ("valid", chain.is_valid().to_string()),
@@ -164,7 +147,6 @@ fn run_smoke_test() {
     ]);
 }
 
-/// Print the node banner with network identity and runtime parameters.
 fn print_banner() {
     println!("==============================================================");
     println!("  XEPAY TESTNET NODE");
