@@ -14,7 +14,7 @@ use serial_test::serial; // For serializing tests that modify global state.
 use std::sync::Mutex; // For protecting the environment variable.
 use xepay::blockchain::Blockchain; // The Blockchain struct.
 use xepay::consensus::genesis; // Genesis parameters.
-use xepay::consensus::spec::{self, Network}; // Network parameters.
+use xepay::consensus::spec::Network; // Network parameters.
 use xepay::validation; // Validation rules.
 
 // A global mutex to protect the XEPC_DATADIR environment variable.
@@ -117,7 +117,7 @@ fn bug_2_address_prefix_is_network_aware() {
     assert_eq!(
         xepay::blockchain::bech32_hrp_for(Network::Test),
         "xtes",
-        "Testnet bech32 HRP must be ztes"
+        "Testnet bech32 HRP must be xtes"
     );
 
     // Regtest legacy prefix byte should be 0x6f.
@@ -131,7 +131,7 @@ fn bug_2_address_prefix_is_network_aware() {
     assert_eq!(
         xepay::blockchain::bech32_hrp_for(Network::Regtest),
         "xreg",
-        "Regtest bech32 HRP must be zreg"
+        "Regtest bech32 HRP must be xreg"
     );
 }
 
@@ -151,7 +151,7 @@ fn bug_2_address_validation_uses_correct_prefix() {
         );
 
         // A valid Mainnet Bech32 address (starts with "xepc1").
-        let bech32_addr = "zena1q4t3vtam8l8lz8hzr9fwakycgrm2c2z89yg7n0n";
+        let bech32_addr = "xepc1q4t3vtam8l8lz8hzr9fwakycgrm2c2z89yg7n0n";
         assert!(
             validation::is_valid_address(bech32_addr, &chain),
             "Mainnet bech32 address should be valid"
