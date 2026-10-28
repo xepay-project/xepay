@@ -320,6 +320,7 @@ pub fn rule_mined_for_valid(block: &Block, chain: &Blockchain) -> Result<(), Val
 }
 
 pub fn rule_block_timestamp_monotonic(prev: &Block, cur: &Block) -> Result<(), ValidationError> {
+    // Rule 1: Timestamp must not be earlier than the previous block.
     if cur.timestamp < prev.timestamp {
         return Err(ValidationError::new(
             "E032",
@@ -329,6 +330,24 @@ pub fn rule_block_timestamp_monotonic(prev: &Block, cur: &Block) -> Result<(), V
             ),
         ));
     }
+
+    // Rule 2: Future Time Limit.
+    // Reject blocks whose timestamp is more than 2 hours ahead of the current local time.
+    // This prevents miners from manipulating the timestamp to abuse difficulty adjustments.
+    let now = crate::utils::now_millis();
+    let max_future_time = now.saturating_add(2 * 60 * 60 * 1000); // 2 hours in milliseconds
+
+    if cur.timestamp > max_future_time {
+        return Err(ValidationError::new(
+            "E050",
+            format!(
+                "timestamp of block {} is too far in the future (max allowed: {}ms ahead)",
+                cur.index,
+                (cur.timestamp - now) / 1000
+            ),
+        ));
+    }
+
     Ok(())
 }
 
@@ -739,6 +758,15 @@ pub fn validate_chain(chain: &mut Blockchain) -> Result<(), ValidationError> {
             return Err(ValidationError::new("E032",
                 format!("timestamp of block {} is earlier than block {}", cur_index, prev_index)));
         }
+        
+        // Future Time Limit check during full chain validation
+        let now = crate::utils::now_millis();
+        let max_future_time = now.saturating_add(2 * 60 * 60 * 1000);
+        if cur_timestamp > max_future_time {
+             return Err(ValidationError::new("E050",
+                format!("timestamp of block {} is too far in the future", cur_index)));
+        }
+
         if cur_nbits != chain.nbits {
             return Err(ValidationError::new("E033",
                 format!("nbits of block {:#010x} does not match chain nbits {:#010x}", cur_nbits, chain.nbits)));
