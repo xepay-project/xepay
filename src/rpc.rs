@@ -26,7 +26,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::{mpsc, RwLock};
 
-pub const DEFAULT_RPC_ADDR: &str = "127.0.0.1:8332";
+pub const DEFAULT_RPC_ADDR: &str = "127.0.0.1:7554";
 pub const DEFAULT_FEE_XEPC: u64 = 100_000;
 
 const ALD_PER_XEPC: u64 = 100_000_000;
@@ -1205,25 +1205,21 @@ impl RpcHandler {
                     return RpcResponse::err("max supply reached");
                 }
 
-                // BITCOIN-GRADE: Take mempool, filter out invalid txs
                 let all_txs = std::mem::take(&mut chain.mempool);
                 chain.mempool_timestamps.clear();
                 let mut valid_txs = Vec::new();
                 
                 for tx in all_txs {
-                    // Try to apply the transaction. If it fails, DROP IT (don't put it back).
                     match chain.apply_and_execute_transaction(&tx) {
                         Ok(_) => valid_txs.push(tx),
                         Err(e) => {
                             println!("[mempool] Dropped invalid tx {} during mining: {}", tx.txid, e);
-                            // Do NOT put it back into the mempool.
                         }
                     }
                 }
 
                 let total_fees = valid_txs.iter().map(|tx| tx.fee).sum::<u64>();
                 
-                // BITCOIN-GRADE: Checked add for reward
                 let reward = subsidy
                     .checked_add(total_fees)
                     .expect("reward overflow should be impossible");
@@ -1439,7 +1435,7 @@ impl RpcHandler {
         }
 
         let nonce = if let Some(custom) = req.params.get(4).and_then(|v| v.as_u64()) {
-            // BITCOIN-GRADE: Cek apakah custom nonce udah dipake di mempool
+            // NOTE: Check if the custom nonce is already used in the mempool
             let chain = self.state.chain.blocking_read();
             if chain.mempool.iter().any(|tx| tx.from == entry.address && tx.nonce == custom) {
                 return RpcResponse::err(&format!("nonce {} already used in mempool", custom));
@@ -1616,7 +1612,6 @@ impl RpcHandler {
     }
 
     fn m_migratewallet(&mut self) -> RpcResponse {
-        // 1. Load legacy wallet
         let legacy_wallet = match Wallet::load_default() {
             Ok(w) => w,
             Err(e) => return RpcResponse::err(&format!("failed to load legacy wallet: {}", e)),
@@ -1626,7 +1621,6 @@ impl RpcHandler {
             return RpcResponse::err("legacy wallet has no addresses to migrate");
         }
 
-        // 2. Create backup of wallet.dat
         let wallet_path = datadir::wallet_path();
         let timestamp = now_millis();
         let backup_name = format!("wallet.dat.bak.{}", timestamp);
@@ -1640,7 +1634,6 @@ impl RpcHandler {
             return RpcResponse::err("wallet.dat not found on disk");
         }
 
-        // 3. Load or create HD wallet
         let mut hd_wallet = match HdWallet::load_default() {
             Ok(w) => w,
             Err(_) => match HdWallet::generate(12) {
@@ -1649,7 +1642,6 @@ impl RpcHandler {
             },
         };
 
-        // 4. Import all legacy entries into HD wallet
         let mut imported = 0;
         let mut skipped = 0;
         for entry in &legacy_wallet.entries {
@@ -1673,7 +1665,6 @@ impl RpcHandler {
             }
         }
 
-        // 5. Save HD wallet
         if let Err(e) = hd_wallet.save_default() {
             return RpcResponse::err(&format!("failed to save HD wallet: {}", e));
         }
