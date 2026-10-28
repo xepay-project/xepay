@@ -26,7 +26,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::{mpsc, RwLock};
 
-pub const DEFAULT_RPC_ADDR: &str = "127.0.0.1:7554";
+pub const DEFAULT_RPC_ADDR: &str = "127.0.0.1:8332";
 pub const DEFAULT_FEE_XEPC: u64 = 100_000;
 
 const ALD_PER_XEPC: u64 = 100_000_000;
@@ -528,14 +528,12 @@ impl RpcHandler {
         let max_supply = consensus::max_supply();
         let remaining = max_supply.saturating_sub(circulating);
         
-        // Calculate percentage mined
         let percent_mined = if max_supply > 0 {
             (circulating as f64 / max_supply as f64) * 100.0
         } else {
             0.0
         };
 
-        // Estimate remaining blocks
         let current_height = c.height();
         let halving_interval = consensus::subsidy_halving_interval();
         let current_era = current_height / halving_interval;
@@ -1441,6 +1439,11 @@ impl RpcHandler {
         }
 
         let nonce = if let Some(custom) = req.params.get(4).and_then(|v| v.as_u64()) {
+            // BITCOIN-GRADE: Cek apakah custom nonce udah dipake di mempool
+            let chain = self.state.chain.blocking_read();
+            if chain.mempool.iter().any(|tx| tx.from == entry.address && tx.nonce == custom) {
+                return RpcResponse::err(&format!("nonce {} already used in mempool", custom));
+            }
             custom
         } else {
             let chain = self.state.chain.blocking_read();
