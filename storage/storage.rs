@@ -8,6 +8,7 @@
 // Block tree keys:  b"b" + height_be     → bincode(Block)
 // Metadata key:     b"meta"              → bincode(ChainMeta)
 // Mempool key:      b"mempool"           → bincode(Mempool)
+// Active wallet:    b"active_wallet"     → bincode(String secret_hex)
 
 use serde::{Serialize, Deserialize};
 use sled::Db;
@@ -18,6 +19,7 @@ use crate::mempool::Mempool;
 const PREFIX_BLOCK: &[u8] = b"b";
 const KEY_MEMPOOL: &[u8] = b"mempool";
 const KEY_META: &[u8] = b"meta";
+const KEY_ACTIVE_WALLET: &[u8] = b"active_wallet";
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct ChainMeta {
@@ -65,8 +67,6 @@ impl Storage {
         }
     }
 
-    /// Verify that the on-disk chain belongs to the expected chain ID.
-    /// Returns Ok(()) if no metadata exists yet (fresh DB) or if it matches.
     pub fn check_chain_id(&self) -> Result<(), String> {
         if let Some(meta) = self.load_meta()? {
             if meta.chain_id != CHAIN_ID {
@@ -76,6 +76,40 @@ impl Storage {
                 ));
             }
         }
+        Ok(())
+    }
+
+    // ---------------------------------------------------------------
+    // Active wallet
+    // ---------------------------------------------------------------
+
+    /// Persist the active wallet's secret hex. In a production deployment,
+    /// this secret should be encrypted with a user-supplied passphrase.
+    pub fn save_active_wallet(&self, secret_hex: &str) -> Result<(), String> {
+        let encoded = bincode::serialize(&secret_hex.to_string()).map_err(|e| e.to_string())?;
+        self.db
+            .insert(KEY_ACTIVE_WALLET, encoded)
+            .map_err(|e| e.to_string())?;
+        self.db.flush().map_err(|e| e.to_string())?;
+        Ok(())
+    }
+
+    pub fn load_active_wallet(&self) -> Result<Option<String>, String> {
+        match self.db.get(KEY_ACTIVE_WALLET).map_err(|e| e.to_string())? {
+            Some(bytes) => {
+                let secret: String =
+                    bincode::deserialize(&bytes).map_err(|e| e.to_string())?;
+                Ok(Some(secret))
+            }
+            None => Ok(None),
+        }
+    }
+
+    pub fn clear_active_wallet(&self) -> Result<(), String> {
+        self.db
+            .remove(KEY_ACTIVE_WALLET)
+            .map_err(|e| e.to_string())?;
+        self.db.flush().map_err(|e| e.to_string())?;
         Ok(())
     }
 
