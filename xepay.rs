@@ -61,25 +61,46 @@ fn run_demo() {
 
     // Fund alice with a coinbase by mining the first block for her.
     chain.add_block(vec![], &alice.address()).unwrap();
-    println!("[XEPY] Alice funded; balance = {}\n",
-        chain.balances.get(&alice.address()).copied().unwrap_or(0));
+    println!(
+        "[XEPY] Alice funded; balance = {}\n",
+        chain.balances.get(&alice.address()).copied().unwrap_or(0)
+    );
 
     // Build a mempool with two fee-paying transactions from alice.
     let mut pool = Mempool::new();
     let tx1 = Transaction::new_signed(
-        &alice.signing_key(), &bob.address(), 10_0000_0000, 100, 0,
+        &alice.signing_key(),
+        &bob.address(),
+        10_0000_0000,
+        100,
+        0,
     );
     let tx2 = Transaction::new_signed(
-        &alice.signing_key(), &carol.address(), 5_0000_0000, 500, 1,
+        &alice.signing_key(),
+        &carol.address(),
+        5_0000_0000,
+        500,
+        1,
     );
     assert!(pool.add(tx1));
     assert!(pool.add(tx2));
-    println!("[XEPY] Mempool size = {}", pool.len());
 
     // Mine one block selecting up to 10 txs, paying fees to bob.
+    // The mempool emptiness check is a real guard: an empty mempool still
+    // produces a valid block containing only the coinbase.
+    if pool.is_empty() {
+        println!("[XEPY] Mempool empty; mining empty block.");
+    } else {
+        println!("[XEPY] Mempool size = {}", pool.len());
+    }
+
     let picked = pool.drain_highest_fee(10);
     chain.add_block(picked, &bob.address()).unwrap();
-    println!("[XEPY] Block mined; height = {}\n", chain.height());
+    println!(
+        "[XEPY] Block mined; height = {}; fees = {}\n",
+        chain.height(),
+        chain.tip().total_fees()
+    );
 
     // Persist the chain to disk.
     {
