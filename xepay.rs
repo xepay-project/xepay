@@ -3,19 +3,13 @@
 // file LICENSE or https://www.apache.org/licenses/LICENSE-2.0.
 
 // xepay.rs
-// Entry point for the XEPY (ticker: XEPY) demonstration blockchain.
-// The implementation relies exclusively on SHA3-256 as its hashing primitive.
+// Entry point for the XEPAY (ticker: XEPY) demonstration blockchain.
 //
-// This file serves as the orchestration layer of the demonstration. It does
-// not implement cryptographic or consensus primitives itself; rather, it
-// declares the sibling modules located at the project root, invokes the
-// proof-of-work pipeline, and reports the resulting chain state in a
-// deterministic, human-readable form.
+// XEPY's design goal is a fast-block chain with an average block time of
+// approximately fifteen seconds. This demonstration instantiates the chain,
+// appends a number of blocks, exercises the difficulty adjustment algorithm,
+// and reports both per-block and aggregate timing statistics.
 
-// The project deliberately avoids the conventional `src/` directory in order
-// to keep the demonstration compact and easily inspectable. Consequently,
-// each module must be explicitly declared via the `#[path]` attribute so that
-// the Rust compiler can resolve sibling files located at the repository root.
 #[path = "crypto.rs"]
 mod crypto;
 
@@ -27,91 +21,84 @@ mod blockchain;
 
 use blockchain::Blockchain;
 
-/// Program entry point.
-///
-/// The function performs the following sequence of operations:
-///   1. Prints a banner identifying the network and its hashing algorithm.
-///   2. Instantiates a blockchain with a predefined proof-of-work difficulty.
-///   3. Appends two demonstration blocks containing illustrative transactions.
-///   4. Validates the integrity of the entire chain.
-///   5. Emits a concise summary of every block currently held in memory.
 fn main() {
     print_banner();
 
-    // A difficulty of three requires each block hash to begin with the
-    // hexadecimal prefix "000". This level is intentionally modest so that
-    // the demonstration completes within a reasonable amount of time on
-    // ordinary hardware while still exercising the proof-of-work loop.
-    let difficulty: u32 = 3;
+    // A modest starting difficulty keeps the demo fast on modest hardware.
+    // The difficulty adjustment algorithm will adapt from here.
+    let initial_difficulty: u32 = 3;
 
-    // Construct the chain. A genesis block is mined immediately upon
-    // initialization, guaranteeing that the chain is never empty.
-    let mut chain = Blockchain::new(difficulty);
+    let mut chain = Blockchain::new(initial_difficulty);
     println!(
-        "[XEPY] Genesis block has been created; current height = {}.\n",
-        chain.height()
+        "[XEPY] Genesis block mined; height = {}; difficulty = {}.",
+        chain.height(),
+        chain.difficulty
     );
+    println!();
 
-    // Append the first demonstration block. Transactions are represented as
-    // plain strings for the sake of brevity; a production-grade network would
-    // instead employ signed, structured transaction records.
-    chain.add_block(vec![
-        "alice -> bob: 10 XEPY".to_string(),
-        "bob -> carol: 2 XEPY".to_string(),
-    ]);
-    println!(
-        "[XEPY] First demonstration block appended; current height = {}.\n",
-        chain.height()
-    );
-
-    // Append the second demonstration block, again with illustrative payload.
-    chain.add_block(vec!["carol -> dave: 5 XEPY".to_string()]);
-    println!(
-        "[XEPY] Second demonstration block appended; current height = {}.\n",
-        chain.height()
-    );
-
-    // Validate the chain in its entirety before reporting the outcome. The
-    // validation routine recomputes every block hash and verifies that each
-    // block correctly references its predecessor.
-    let validity = chain.is_valid();
-    println!("Chain integrity verified: {}.", validity);
-    println!("Total number of blocks: {}.", chain.height());
-
-    // Emit a compact, line-per-block report. Hash fragments are truncated to
-    // sixteen hexadecimal characters solely for readability; the underlying
-    // values remain full-length inside the chain structure.
-    println!("\n--- Chain contents ---");
-    for (index, block) in chain.chain.iter().enumerate() {
+    // Append enough blocks to trigger several difficulty adjustments.
+    // With ADJUSTMENT_INTERVAL = 20, mining ~45 blocks triggers two
+    // adjustments and yields a meaningful average block time.
+    let blocks_to_mine: usize = 45;
+    for i in 1..=blocks_to_mine {
+        chain.add_block(vec![format!("tx-{}: alice -> bob: 1 XEPY", i)]);
+        let avg = chain.average_block_time_secs();
         println!(
-            "Block #{:>2} | hash={} | prev={} | nonce={} | txs={}",
+            "[XEPY] Block {:>3} appended; height={}; difficulty={}; avg_block_time={:.2}s",
+            i,
+            chain.height(),
+            chain.difficulty,
+            avg
+        );
+    }
+    println!();
+
+    // Final report.
+    let validity = chain.is_valid();
+    let avg = chain.average_block_time_secs();
+    println!("Chain integrity verified: {}.", validity);
+    println!("Total blocks: {}.", chain.height());
+    println!("Average block time: {:.2} seconds.", avg);
+    println!(
+        "Target block time: {} seconds (drift: {:+.2} s).",
+        blockchain::TARGET_BLOCK_TIME_SECS,
+        avg - blockchain::TARGET_BLOCK_TIME_SECS as f64
+    );
+    println!();
+
+    println!("--- Chain summary (last 10 blocks) ---");
+    let start = chain.chain.len().saturating_sub(10);
+    for (index, block) in chain.chain.iter().enumerate().skip(start) {
+        println!(
+            "Block #{:>3} | hash={} | prev={} | nonce={} | diff={} | txs={}",
             index,
             &block.hash[..16],
             &block.header.prev_block_hash[..16],
             block.header.nonce,
+            block.header.difficulty,
             block.transactions.len()
         );
     }
 
-    // Concluding remark indicating that the demonstration has concluded.
-    println!("\n[XEPY] Demonstration concluded successfully.");
+    println!();
+    println!("[XEPY] Demonstration concluded.");
 }
 
-/// Print the introductory banner for the demonstration.
-///
-/// The banner identifies the network name, the ticker symbol, and the
-/// cryptographic primitive employed for block hashing. Keeping this output
-/// separate from the main logic improves readability and makes it easier to
-/// adjust the presentation in future revisions.
+/// Print the banner and educational disclaimer.
 fn print_banner() {
     println!("==============================================");
-    println!("   XEPY (ticker: XEPY) — SHA3-256 Demo Chain");
+    println!("   XEPY (ticker: XEPY) — SHA3-256 Fast Chain");
+    println!("   Target block time: ~15 seconds");
     println!("==============================================");
     println!();
     println!("This demonstration exercises a minimal blockchain");
-    println!("implementation whose sole cryptographic primitive");
-    println!("is SHA3-256. It is intended strictly for educational");
-    println!("purposes and must not be deployed on any network");
-    println!("that carries real economic value.");
+    println!("whose sole cryptographic primitive is SHA3-256.");
+    println!("It includes an adaptive difficulty mechanism that");
+    println!("aims to hold the average block time near fifteen");
+    println!("seconds as hashrate fluctuates.");
+    println!();
+    println!("It is strictly an educational artifact and must");
+    println!("not be deployed on any network carrying real");
+    println!("economic value.");
     println!();
 }

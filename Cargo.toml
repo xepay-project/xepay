@@ -2,6 +2,9 @@
 name = "xepy"
 version = "0.1.0"
 edition = "2021"
+license = "Apache-2.0"
+authors = ["Aldianokto, Xepay Core developers"]
+description = "XEPAY (XEPY) — a fast-block blockchain targeting ~15s block time, using SHA3-256."
 
 [[bin]]
 name = "xepy"
