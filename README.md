@@ -16,6 +16,7 @@
 ## Overview
 
 Indonesian, 28/10/2026 🇮🇩,
+
 **XEPAY** (ticker: **XEPY**) is a Layer-1 proof-of-work blockchain engineered
 around three design commitments:
 
