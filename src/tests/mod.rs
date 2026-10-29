@@ -13,6 +13,7 @@ mod hash_test;
 mod hdwallet_test;
 mod pow_test;
 mod secp256k1_test;
+mod security_hardening_test;
 mod sendtoaddress_test;
 mod storage_test;
 mod validation_test;
