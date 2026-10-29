@@ -631,13 +631,25 @@ impl RpcHandler {
     }
 
     // Get a block template for miners.
+    //
+    // # Bitcoin-Grade Note
+    //
+    // This function acquires a write lock on the chain because computing
+    // the next state root requires mutating a temporary snapshot of the
+    // trie (equivalent to `TestBlockValidity` in Bitcoin Core, which
+    // mutates a temporary `CCoinsViewCache`). The write lock is held
+    // only for the duration of this function and is released before
+    // returning, so it does not block other RPC calls.
     fn m_getblocktemplate(&self) -> RpcResponse {
-        let c = self.state.chain.blocking_read();
+        let mut c = self.state.chain.blocking_write();
         let next_height = c.height() + 1;
         let subsidy = Blockchain::calculate_reward(next_height);
-        let prev = c.chain.last().unwrap();
-        let prev_hash = prev.hash.clone();
-        let previous_chainwork = prev.chainwork;
+
+        let (prev_hash, previous_chainwork, nbits) = {
+            let prev = c.chain.last().unwrap();
+            (prev.hash.clone(), prev.chainwork, c.nbits)
+        };
+
         let total_fees: u64 = c.mempool.iter().map(|tx| tx.fee).sum();
         let reward = subsidy.saturating_add(total_fees);
 
@@ -685,11 +697,13 @@ impl RpcHandler {
             }
         };
 
+        let mempool_snapshot = c.mempool.clone();
+
         RpcResponse::ok(json!({
             "height": next_height,
             "previous_hash": prev_hash,
             "previous_chainwork": previous_chainwork.to_string(),
-            "nbits": c.nbits,
+            "nbits": nbits,
             "state_root": state_root,
             "reward_xepc": to_coin(reward),
             "reward_ald": to_aldian(reward),
@@ -697,7 +711,7 @@ impl RpcHandler {
             "subsidy_ald": to_aldian(subsidy),
             "total_fees_xepc": to_coin(total_fees),
             "total_fees_ald": to_aldian(total_fees),
-            "mempool": c.mempool,
+            "mempool": mempool_snapshot,
             "min_relay_fee_per_byte": blockchain::MIN_RELAY_FEE_PER_BYTE,
         }))
     }
