@@ -168,7 +168,7 @@ pub const DEFAULT_RPC_PORT_MAIN: u16 = 7554;
 pub const DATADIR_NAME_MAIN: &str = ".xepay";
 pub const GENESIS_TIMESTAMP_MAIN: u128 = 1792303198445;
 pub const GENESIS_NBITS_MAIN: u32 = 0x1e0ffff0;
-pub const EXPECTED_GENESIS_NONCE_MAIN: u64 = 849719;
+pub const EXPECTED_GENESIS_NONCE_MAIN: u64 = 93865;
 
 // ----------------------------------------------------------------------
 // Testnet parameters
@@ -180,7 +180,7 @@ pub const DEFAULT_RPC_PORT_TEST: u16 = 12254;
 pub const DATADIR_NAME_TEST: &str = ".xepay-testnet";
 pub const GENESIS_TIMESTAMP_TEST: u128 = 1792303198446;
 pub const GENESIS_NBITS_TEST: u32 = 0x1e0ffff0;
-pub const EXPECTED_GENESIS_NONCE_TEST: u64 = 1892429;
+pub const EXPECTED_GENESIS_NONCE_TEST: u64 = 464818;
 
 // ----------------------------------------------------------------------
 // Regtest parameters
