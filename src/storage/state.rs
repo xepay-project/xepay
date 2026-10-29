@@ -97,7 +97,16 @@ impl StateDB {
     /// Create a temporary snapshot of the current state without
     /// modifying the original. This is used by `getblocktemplate`
     /// to simulate the effect of mempool transactions on the state root.
-    pub fn rollback_snapshot(&self) -> Result<StateDB, String> {
+    ///
+    /// # Bitcoin-Grade Note
+    ///
+    /// In Bitcoin Core, `getblocktemplate` acquires a lock and calls
+    /// `TestBlockValidity`, which mutates a temporary `CCoinsViewCache`.
+    /// Here, `rollback_snapshot()` is the equivalent: it takes `&mut self`
+    /// because `root_hash()` requires mutable access to the trie. The
+    /// caller (`m_getblocktemplate`) is responsible for holding a write
+    /// lock on the chain while this snapshot is taken.
+    pub fn rollback_snapshot(&mut self) -> Result<StateDB, String> {
         let root = self
             .trie
             .root_hash()
