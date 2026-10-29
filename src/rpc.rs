@@ -420,7 +420,7 @@ impl RpcHandler {
             "getmempoolinfo" => self.m_getmempoolinfo(),
             "validatemempool" => self.m_validatemempool(),
             "getnonce" => self.m_getnonce(req),
-            
+
             // HD Wallet methods
             "createhdwallet" => self.m_createhdwallet(req),
             "loadhdwallet" => self.m_loadhdwallet(),
@@ -472,7 +472,7 @@ impl RpcHandler {
         self.state.shutdown.store(true, Ordering::SeqCst);
 
         let mut chain = self.state.chain.blocking_write();
-        
+
         if let Err(e) = chain.state.flush() {
             println!("[node] WARNING: Failed to flush state db: {}", e);
         }
@@ -555,7 +555,7 @@ impl RpcHandler {
         let circulating = c.circulating_supply();
         let max_supply = consensus::max_supply();
         let remaining = max_supply.saturating_sub(circulating);
-        
+
         let percent_mined = if max_supply > 0 {
             (circulating as f64 / max_supply as f64) * 100.0
         } else {
@@ -566,10 +566,10 @@ impl RpcHandler {
         let halving_interval = consensus::subsidy_halving_interval();
         let current_era = current_height / halving_interval;
         let max_halvings = consensus::max_halvings() as u64;
-        
+
         let mut remaining_blocks: u64 = 0;
         let mut era_reward = consensus::initial_reward();
-        
+
         for era in current_era..max_halvings {
             let blocks_in_era = if era == current_era {
                 halving_interval - (current_height % halving_interval)
@@ -640,11 +640,59 @@ impl RpcHandler {
         let previous_chainwork = prev.chainwork;
         let total_fees: u64 = c.mempool.iter().map(|tx| tx.fee).sum();
         let reward = subsidy.saturating_add(total_fees);
+
+        // Compute the state root that would result from applying all
+        // mempool transactions to the current state. This is required so
+        // that an external miner can produce a block with a valid
+        // `state_root` and a consistent hash.
+        let state_root = {
+            // Clone the current state by reading the root hash, then
+            // simulate the transactions on a temporary view.
+            let mut temp_state = match c.state.rollback_snapshot() {
+                Ok(s) => s,
+                Err(e) => {
+                    return RpcResponse::err(&format!(
+                        "failed to snapshot state for template: {}",
+                        e
+                    ))
+                }
+            };
+
+            for tx in &c.mempool {
+                if crate::validation::is_special_tx(tx) {
+                    continue;
+                }
+                if let Err(e) = temp_state.apply_transaction(
+                    &tx.from,
+                    &tx.to,
+                    tx.amount,
+                    tx.fee,
+                    tx.nonce,
+                ) {
+                    return RpcResponse::err(&format!(
+                        "failed to apply tx {} in template: {}",
+                        tx.txid, e
+                    ));
+                }
+            }
+
+            match temp_state.root_hash() {
+                Ok(root) => hex::encode(root),
+                Err(e) => {
+                    return RpcResponse::err(&format!(
+                        "failed to compute state root for template: {}",
+                        e
+                    ))
+                }
+            }
+        };
+
         RpcResponse::ok(json!({
             "height": next_height,
             "previous_hash": prev_hash,
             "previous_chainwork": previous_chainwork.to_string(),
             "nbits": c.nbits,
+            "state_root": state_root,
             "reward_xepc": to_coin(reward),
             "reward_ald": to_aldian(reward),
             "subsidy_xepc": to_coin(subsidy),
@@ -734,6 +782,8 @@ impl RpcHandler {
             "nbits": block.nbits,
         }))
     }
+
+    // ... (sisa method lainnya sama persis, nggak berubah)
 
     // Get the balance of an address or the entire wallet.
     fn m_getbalance(&self, req: &RpcRequest) -> RpcResponse {
@@ -1257,7 +1307,7 @@ impl RpcHandler {
                 let all_txs = std::mem::take(&mut chain.mempool);
                 chain.mempool_timestamps.clear();
                 let mut valid_txs = Vec::new();
-                
+
                 for tx in all_txs {
                     match chain.apply_and_execute_transaction(&tx) {
                         Ok(_) => valid_txs.push(tx),
@@ -1268,11 +1318,11 @@ impl RpcHandler {
                 }
 
                 let total_fees = valid_txs.iter().map(|tx| tx.fee).sum::<u64>();
-                
+
                 let reward = subsidy
                     .checked_add(total_fees)
                     .expect("reward overflow should be impossible");
-                    
+
                 if let Err(e) = chain.credit_reward(&addr, reward, next_index) {
                     return RpcResponse::err(&format!("failed to credit reward: {}", e));
                 }
