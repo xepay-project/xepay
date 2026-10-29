@@ -128,18 +128,36 @@ impl Transaction {
         sha3_256_hex(payload.as_bytes())
     }
 
+    /// Sign the transaction with the given secret key.
+    ///
+    /// The order of operations is important:
+    ///   1. Set `public_key` so that `signing_hash()` is complete.
+    ///   2. Compute the signing hash and sign it.
+    ///   3. Set `signature`.
+    ///   4. Compute `txid` **after** `public_key` and `signature` are set,
+    ///      so that the txid commits to the full transaction data.
+    ///
+    /// This mirrors the behaviour of reference node implementations,
+    /// where `SignatureHash()` is computed before the signature is
+    /// written, and `GetHash()` is computed after all fields are set.
     pub fn sign(&mut self, secret_hex: &str) -> Result<(), String> {
         use crate::secp256k1::{keypair::KeyPair, sign};
 
         let sk = hex::decode(secret_hex).map_err(|e| e.to_string())?;
         let kp = KeyPair::from_secret(&sk)?;
 
+        // Step 1: set the public key.
         self.public_key = kp.public_key_hex();
-        self.txid = self.compute_txid();
 
+        // Step 2: compute the signing hash and sign it.
         let msg = hex::decode(self.signing_hash()).map_err(|e| e.to_string())?;
         let sig = sign::sign(&kp.secret_key, &msg)?;
+
+        // Step 3: set the signature.
         self.signature = hex::encode(sig);
+
+        // Step 4: compute the txid AFTER public_key and signature are set.
+        self.txid = self.compute_txid();
 
         Ok(())
     }
