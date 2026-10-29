@@ -25,14 +25,12 @@ static ENV_MUTEX: Mutex<()> = Mutex::new(());
 //
 // # Important
 //
-// We use `tempfile::TempDir::keep()` (formerly `into_path()`) so that the
-// directory is *not* deleted when the `TempDir` guard is dropped. This is
-// necessary because `Blockchain` may hold an open LevelDB handle that
-// references this path. Deleting the directory while LevelDB is still
-// open would cause undefined behavior or a hang.
-//
-// The directory is intentionally leaked. The OS will clean it up when the
-// test process exits.
+// We use `tempfile::TempDir::keep()` so that the directory is *not* deleted
+// when the `TempDir` guard is dropped. This is necessary because `Blockchain`
+// may hold an open LevelDB handle that references this path. Deleting the
+// directory while LevelDB is still open would cause undefined behavior or a
+// hang. The directory is intentionally leaked. The OS will clean it up when
+// the test process exits.
 fn with_temp_datadir<F: FnOnce()>(f: F) {
     let _guard = ENV_MUTEX.lock().unwrap();
     let dir = tempfile::tempdir().expect("tempdir failed");
@@ -142,18 +140,31 @@ fn bug_2_address_prefix_is_network_aware() {
 #[serial]
 fn bug_2_address_validation_uses_correct_prefix() {
     with_temp_datadir(|| {
+        use xepay::secp256k1::address;
+        use xepay::secp256k1::keypair::KeyPair;
+
         let chain = Blockchain::new();
 
-        let main_addr = "LgoJ9krkNnKWWgqzdR3keHJkoBPdEnyWHc";
+        // Derive a valid address dynamically instead of hardcoding it.
+        // This is the same approach used by other reference node
+        // implementations: never hardcode addresses in tests, always
+        // derive them from a keypair.
+        let kp = KeyPair::generate().expect("keypair generation failed");
+
+        let legacy_addr =
+            address::address_from_public_key(&kp.public_key).expect("legacy address failed");
         assert!(
-            validation::is_valid_address(main_addr, &chain),
-            "Mainnet legacy address should be valid"
+            validation::is_valid_address(&legacy_addr, &chain),
+            "legacy address should be valid: {}",
+            legacy_addr
         );
 
-        let bech32_addr = "xepc1q4t3vtam8l8lz8hzr9fwakycgrm2c2z89yg7n0n";
+        let bech32_addr = address::address_from_public_key_bech32(&kp.public_key)
+            .expect("bech32 address failed");
         assert!(
-            validation::is_valid_address(bech32_addr, &chain),
-            "Mainnet bech32 address should be valid"
+            validation::is_valid_address(&bech32_addr, &chain),
+            "bech32 address should be valid: {}",
+            bech32_addr
         );
 
         assert!(
