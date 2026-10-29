@@ -106,12 +106,19 @@ impl SyncState {
         }
 
         let ancestor_block = &chain.chain[ancestor_index as usize];
+
+        // Validate the state root before rolling back.
         if ancestor_block.state_root.is_empty() {
             return Err("ancestor block has no state root".into());
         }
 
         let root_bytes = hex::decode(&ancestor_block.state_root)
             .map_err(|e| format!("invalid state root hex: {}", e))?;
+
+        if root_bytes.len() != 32 {
+            return Err("state root must be 32 bytes".into());
+        }
+
         let mut root_arr = [0u8; 32];
         root_arr.copy_from_slice(&root_bytes);
 
@@ -178,7 +185,6 @@ impl SyncState {
         Ok(())
     }
 
-    // Changed to &mut Blockchain to satisfy validate_chain's mutable requirement.
     pub fn finalize(&self, chain: &mut Blockchain) -> bool {
         validation::validate_chain(chain).is_ok()
     }
