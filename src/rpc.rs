@@ -646,8 +646,6 @@ impl RpcHandler {
         // that an external miner can produce a block with a valid
         // `state_root` and a consistent hash.
         let state_root = {
-            // Clone the current state by reading the root hash, then
-            // simulate the transactions on a temporary view.
             let mut temp_state = match c.state.rollback_snapshot() {
                 Ok(s) => s,
                 Err(e) => {
@@ -782,8 +780,6 @@ impl RpcHandler {
             "nbits": block.nbits,
         }))
     }
-
-    // ... (sisa method lainnya sama persis, nggak berubah)
 
     // Get the balance of an address or the entire wallet.
     fn m_getbalance(&self, req: &RpcRequest) -> RpcResponse {
