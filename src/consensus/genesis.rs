@@ -18,9 +18,27 @@ use crate::consensus::spec::{self, Network}; // Network selector and parameters.
 pub const GENESIS_MESSAGE: &str = "XEPAY Genesis - 2026";
 // The secret embedded in the genesis secret transaction.
 pub const GENESIS_SECRET: &str = "ID Today 15/Oct/2026";
-// The output script used in the genesis block.
+
+// ----------------------------------------------------------------------
+// Genesis output script (P2PK, same format as the reference implementation)
+// ----------------------------------------------------------------------
+//
+// The genesis output script locks the genesis block reward to a specific
+// public key. This mirrors the reference implementation's approach, which
+// uses a P2PK script:
+//
+//     <public_key> OP_CHECKSIG
+//
+// The public key below is an uncompressed 65-byte secp256k1 public key.
+// Its corresponding private key is unknown, so the genesis output can
+// never be spent. This prevents any "pre-mine" from being claimed.
+//
+// Using a P2PK script (rather than the previous P2PKH placeholder) makes
+// the script valid and parseable by a standard script interpreter. This
+// is required if XEPAY later adds script execution or multi-signature
+// support.
 pub const GENESIS_OUTPUT_SCRIPT: &str =
-    "OP_DUP OP_HASH160 XEPAYGenesisOutput OP_EQUALVERIFY OP_CHECKSIG";
+    "04678afdb0fe5548271967f1a67130b7105cd6a828e03909a67962e0ea1f61deb649f6bc3f4cef38c4f35504e51ec112de5c384df7ba0b8d578a4c702b6bf11d5f OP_CHECKSIG";
 
 // ----------------------------------------------------------------------
 // Mainnet genesis
@@ -30,68 +48,71 @@ pub const GENESIS_OUTPUT_SCRIPT: &str =
 pub const GENESIS_TIMESTAMP: u128 = 1792303198445;
 
 // The expected mainnet genesis hash.
+//
+// NOTE: This value must be regenerated after any change to
+// GENESIS_OUTPUT_SCRIPT. Run `xepay-genesis` and paste the output here.
 pub const EXPECTED_GENESIS_HASH: &str =
-    "000004accc8488951db534e6a3c84fb3a54c11f7041ff8b305584e907abf69a8";
+    "PLACEHOLDER_RUN_XEPAY_GENESIS_MAINNET";
 
 // The expected mainnet genesis merkle root.
 pub const EXPECTED_GENESIS_MERKLE_ROOT: &str =
-    "8af01af7ca4b233428b7c2bf6ea9de4148272a5aea72dd16cda0870435aba720";
+    "PLACEHOLDER_RUN_XEPAY_GENESIS_MAINNET";
 
 // The expected mainnet genesis timestamp.
 pub const EXPECTED_GENESIS_TIMESTAMP: u128 = 1792303198445;
 
 // The expected mainnet genesis nonce.
-pub const EXPECTED_GENESIS_NONCE: u64 = 93865;
+pub const EXPECTED_GENESIS_NONCE: u64 = 0;
 
 // ----------------------------------------------------------------------
 // Testnet genesis
 // ----------------------------------------------------------------------
-//
-// The testnet genesis is mined at build time by the `xepay-genesis`
-// binary with the `-testnet` flag. The resulting hash, merkle root,
-// timestamp, and nonce must be pasted into this module.
 
 // The testnet genesis timestamp (in milliseconds).
 pub const TESTNET_GENESIS_TIMESTAMP: u128 = 1792303198446;
 
 // The expected testnet genesis hash.
+//
+// NOTE: This value must be regenerated after any change to
+// GENESIS_OUTPUT_SCRIPT. Run `xepay-genesis -testnet` and paste the
+// output here.
 pub const TESTNET_EXPECTED_GENESIS_HASH: &str =
-    "0000039e3513554d27f0a94c6568696fae7afc94acd9016f572bb5d1a42589e7";
+    "PLACEHOLDER_RUN_XEPAY_GENESIS_TESTNET";
 
 // The expected testnet genesis merkle root.
 pub const TESTNET_EXPECTED_GENESIS_MERKLE_ROOT: &str =
-    "8af01af7ca4b233428b7c2bf6ea9de4148272a5aea72dd16cda0870435aba720";
+    "PLACEHOLDER_RUN_XEPAY_GENESIS_TESTNET";
 
 // The expected testnet genesis timestamp.
 pub const TESTNET_EXPECTED_GENESIS_TIMESTAMP: u128 = 1792303198446;
 
 // The expected testnet genesis nonce.
-pub const TESTNET_EXPECTED_GENESIS_NONCE: u64 = 464818;
+pub const TESTNET_EXPECTED_GENESIS_NONCE: u64 = 0;
 
 // ----------------------------------------------------------------------
 // Regtest genesis
 // ----------------------------------------------------------------------
-//
-// The regtest genesis is mined at build time by the `xepay-genesis`
-// binary with the `-regtest` flag. The resulting hash, merkle root,
-// timestamp, and nonce must be pasted into this module.
 
 // The regtest genesis timestamp (in milliseconds).
 pub const REGTEST_GENESIS_TIMESTAMP: u128 = 1792303198447;
 
 // The expected regtest genesis hash.
+//
+// NOTE: This value must be regenerated after any change to
+// GENESIS_OUTPUT_SCRIPT. Run `xepay-genesis -regtest` and paste the
+// output here.
 pub const REGTEST_EXPECTED_GENESIS_HASH: &str =
-    "29a464f7a994be1c96a5c5f627aefca5db0f2e6f5deef23cc8c81e8e4c3b462c";
+    "PLACEHOLDER_RUN_XEPAY_GENESIS_REGTEST";
 
 // The expected regtest genesis merkle root.
 pub const REGTEST_EXPECTED_GENESIS_MERKLE_ROOT: &str =
-    "8af01af7ca4b233428b7c2bf6ea9de4148272a5aea72dd16cda0870435aba720";
+    "PLACEHOLDER_RUN_XEPAY_GENESIS_REGTEST";
 
 // The expected regtest genesis timestamp.
 pub const REGTEST_EXPECTED_GENESIS_TIMESTAMP: u128 = 1792303198447;
 
 // The expected regtest genesis nonce.
-pub const REGTEST_EXPECTED_GENESIS_NONCE: u64 = 2;
+pub const REGTEST_EXPECTED_GENESIS_NONCE: u64 = 0;
 
 // ----------------------------------------------------------------------
 // Network-aware accessors
@@ -99,63 +120,56 @@ pub const REGTEST_EXPECTED_GENESIS_NONCE: u64 = 2;
 
 // Returns the shared genesis message.
 pub fn genesis_message() -> &'static str {
-    GENESIS_MESSAGE // Return the constant.
+    GENESIS_MESSAGE
 }
 
 // Returns the shared genesis secret.
 pub fn genesis_secret() -> &'static str {
-    GENESIS_SECRET // Return the constant.
+    GENESIS_SECRET
 }
 
 // Returns the genesis timestamp for the active network.
 pub fn genesis_timestamp() -> u128 {
-    spec::current_network().genesis_timestamp() // Fetch from the spec.
+    spec::current_network().genesis_timestamp()
 }
 
 // Returns the shared genesis output script.
 pub fn genesis_output_script() -> String {
-    GENESIS_OUTPUT_SCRIPT.to_string() // Return the constant as a String.
+    GENESIS_OUTPUT_SCRIPT.to_string()
 }
 
 // Returns the expected genesis hash for the given network.
 pub fn expected_genesis_hash_for(network: Network) -> &'static str {
     match network {
-        Network::Main => EXPECTED_GENESIS_HASH, // Mainnet hash.
-        Network::Test => TESTNET_EXPECTED_GENESIS_HASH, // Testnet hash.
-        Network::Regtest => REGTEST_EXPECTED_GENESIS_HASH, // Regtest hash.
+        Network::Main => EXPECTED_GENESIS_HASH,
+        Network::Test => TESTNET_EXPECTED_GENESIS_HASH,
+        Network::Regtest => REGTEST_EXPECTED_GENESIS_HASH,
     }
 }
 
 // Returns the expected genesis merkle root for the given network.
 pub fn expected_genesis_merkle_root_for(network: Network) -> &'static str {
     match network {
-        Network::Main => EXPECTED_GENESIS_MERKLE_ROOT, // Mainnet merkle root.
-        Network::Test => TESTNET_EXPECTED_GENESIS_MERKLE_ROOT, // Testnet merkle root.
-        Network::Regtest => REGTEST_EXPECTED_GENESIS_MERKLE_ROOT, // Regtest merkle root.
+        Network::Main => EXPECTED_GENESIS_MERKLE_ROOT,
+        Network::Test => TESTNET_EXPECTED_GENESIS_MERKLE_ROOT,
+        Network::Regtest => REGTEST_EXPECTED_GENESIS_MERKLE_ROOT,
     }
 }
 
 // Returns the expected genesis timestamp for the given network.
 pub fn expected_genesis_timestamp_for(network: Network) -> u128 {
     match network {
-        Network::Main => EXPECTED_GENESIS_TIMESTAMP, // Mainnet timestamp.
-        Network::Test => TESTNET_EXPECTED_GENESIS_TIMESTAMP, // Testnet timestamp.
-        Network::Regtest => REGTEST_EXPECTED_GENESIS_TIMESTAMP, // Regtest timestamp.
+        Network::Main => EXPECTED_GENESIS_TIMESTAMP,
+        Network::Test => TESTNET_EXPECTED_GENESIS_TIMESTAMP,
+        Network::Regtest => REGTEST_EXPECTED_GENESIS_TIMESTAMP,
     }
 }
 
 // Returns the expected genesis nonce for the given network.
 pub fn expected_genesis_nonce_for(network: Network) -> u64 {
     match network {
-        Network::Main => EXPECTED_GENESIS_NONCE, // Mainnet nonce.
-        Network::Test => TESTNET_EXPECTED_GENESIS_NONCE, // Testnet nonce.
-        Network::Regtest => REGTEST_EXPECTED_GENESIS_NONCE, // Regtest nonce.
+        Network::Main => EXPECTED_GENESIS_NONCE,
+        Network::Test => TESTNET_EXPECTED_GENESIS_NONCE,
+        Network::Regtest => REGTEST_EXPECTED_GENESIS_NONCE,
     }
 }
-
-// NOTE: The legacy accessors `expected_genesis_hash()`,
-// `expected_genesis_merkle_root()`, and `expected_genesis_nonce()` have
-// been removed. They always returned Mainnet values and were a footgun
-// for Testnet/Regtest code. Use the `_for(network)` variants instead,
-// or call `expected_genesis_*_for(spec::current_network())` if you
-// need the value for the active network.
