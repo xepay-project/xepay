@@ -25,18 +25,21 @@ pub const BLOCKS_PER_FILE: usize = 1000;
 /// the tip block always has a corresponding `root_hash.txt` on disk.
 /// This mirrors the order used by reference node implementations, which
 /// flush the state to disk before persisting the block index.
-pub fn save_chain(chain: &Blockchain) -> std::io::Result<()> {
+///
+/// # Signature
+///
+/// `chain` is taken as `&mut` because `StateDB::flush()` requires
+/// `&mut self`. The alternative — opening a second `StateDB` instance
+/// on the same path — is rejected by the underlying database, which
+/// holds an exclusive lock on the directory.
+pub fn save_chain(chain: &mut Blockchain) -> std::io::Result<()> {
     datadir::ensure_dirs()?;
 
     // Step 1: flush the state database so that root_hash.txt is written.
-    // We need a mutable reference for flush(), so we clone the chain's
-    // state into a temporary variable, flush it, and discard it.
-    //
-    // Note: flush() only writes to disk; it does not mutate the in-memory
-    // chain in any way that affects consensus.
-    let mut state = crate::storage::StateDB::open(&datadir::state_db_path())
-        .map_err(|e| Error::other(format!("failed to open state db for flush: {}", e)))?;
-    state.flush().map_err(|e| Error::other(format!("failed to flush state: {}", e)))?;
+    chain
+        .state
+        .flush()
+        .map_err(|e| Error::other(format!("failed to flush state: {}", e)))?;
 
     // Step 2: persist blocks, mempool, and the state snapshot.
     save_blocks(chain)?;
