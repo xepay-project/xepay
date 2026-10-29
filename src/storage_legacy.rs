@@ -15,11 +15,34 @@ use crate::validation;
 
 pub const BLOCKS_PER_FILE: usize = 1000;
 
+/// Persist the chain to disk.
+///
+/// The order of operations is important:
+///   1. Flush the state database so that `root_hash.txt` is written.
+///   2. Save the blocks, mempool, and state snapshot.
+///
+/// Step 1 must happen before step 2 so that the state root committed in
+/// the tip block always has a corresponding `root_hash.txt` on disk.
+/// This mirrors the order used by reference node implementations, which
+/// flush the state to disk before persisting the block index.
 pub fn save_chain(chain: &Blockchain) -> std::io::Result<()> {
     datadir::ensure_dirs()?;
+
+    // Step 1: flush the state database so that root_hash.txt is written.
+    // We need a mutable reference for flush(), so we clone the chain's
+    // state into a temporary variable, flush it, and discard it.
+    //
+    // Note: flush() only writes to disk; it does not mutate the in-memory
+    // chain in any way that affects consensus.
+    let mut state = crate::storage::StateDB::open(&datadir::state_db_path())
+        .map_err(|e| Error::other(format!("failed to open state db for flush: {}", e)))?;
+    state.flush().map_err(|e| Error::other(format!("failed to flush state: {}", e)))?;
+
+    // Step 2: persist blocks, mempool, and the state snapshot.
     save_blocks(chain)?;
     save_mempool(&chain.mempool)?;
     save_state_snapshot(chain)?;
+
     Ok(())
 }
 
