@@ -299,7 +299,7 @@ pub struct Blockchain {
 impl Blockchain {
     pub fn new() -> Self {
         let mut genesis = Block::genesis();
-        
+
         let db_path = crate::datadir::state_db_path();
         let mut state = StateDB::open(&db_path).expect("failed to open state db");
 
@@ -457,9 +457,12 @@ impl Blockchain {
     }
 
     fn evict_lowest_fee_transactions(&mut self, needed_space: usize) {
+        // Sort by total absolute fee (fee_rate * size), ascending.
+        // This ensures that transactions with the highest total fee are kept,
+        // regardless of their size.
         self.mempool.sort_by(|a, b| {
-            let fee_a = Self::fee_rate(a);
-            let fee_b = Self::fee_rate(b);
+            let fee_a = Self::fee_rate(a).saturating_mul(Self::tx_size_bytes(a) as u64);
+            let fee_b = Self::fee_rate(b).saturating_mul(Self::tx_size_bytes(b) as u64);
             fee_a.cmp(&fee_b)
         });
 
@@ -477,7 +480,11 @@ impl Blockchain {
         for i in to_remove.into_iter().rev() {
             let removed = self.mempool.remove(i);
             self.mempool_timestamps.remove(&removed.txid);
-            println!("[mempool] Evicted tx {} (fee rate {}) to make room", removed.txid, Self::fee_rate(&removed));
+            println!(
+                "[mempool] Evicted tx {} (fee rate {}) to make room",
+                removed.txid,
+                Self::fee_rate(&removed)
+            );
         }
     }
 
@@ -575,7 +582,7 @@ impl Blockchain {
         let next_index = prev.index + 1;
         let subsidy = Self::calculate_reward(next_index);
         let total_fees: u64 = self.mempool.iter().map(|tx| tx.fee).sum();
-        
+
         let reward = subsidy
             .checked_add(total_fees)
             .ok_or_else(|| "block reward overflow".to_string())?;
@@ -609,7 +616,7 @@ impl Blockchain {
             String::new(),
             state_root,
             prev.chainwork,
-        )?; // <-- BITCOIN-GRADE: Handle Result
+        )?;
 
         if !pow::mine(&mut new_block, self.nbits) {
             return Err("mining failed: nonce exhausted".into());
@@ -632,15 +639,12 @@ impl Blockchain {
         }
 
         let interval = spec::DIFFICULTY_ADJUST_INTERVAL as usize;
-        
-        // BITCOIN-GRADE: Use Median Time Past (MTP) instead of raw timestamp
+
+        // Use Median Time Past (MTP) instead of raw timestamp
         // to prevent miners from manipulating the timestamp.
-        // MTP of the last block (median of the previous 11 blocks)
         let last_mtp = self.median_time_past_at(height as usize);
-        // MTP of the first block in the interval
         let first_mtp = self.median_time_past_at((height as usize) - interval);
 
-        // Actual timespan in seconds
         let actual_time_secs = last_mtp.saturating_sub(first_mtp) as u64;
         let expected_time_secs = spec::POW_TARGET_TIMESPAN_SECS;
 
@@ -649,14 +653,13 @@ impl Blockchain {
         }
 
         let current_target = pow::nbits_to_target(self.nbits);
-        
-        // BITCOIN-GRADE: Clamp the adjustment to a factor of 4 (0.25x to 4x)
+
+        // Clamp the adjustment to a factor of 4 (0.25x to 4x)
         // This prevents extreme difficulty jumps.
         let mut scale = (actual_time_secs as u128)
             .checked_mul(256)
             .unwrap_or(u128::MAX) / (expected_time_secs as u128);
-            
-        // Clamp scale to [64, 1024] (which is 0.25x to 4x of 256)
+
         if scale < 64 { scale = 64; }
         if scale > 1024 { scale = 1024; }
 
@@ -668,18 +671,17 @@ impl Blockchain {
         }
     }
 
-    // BITCOIN-GRADE: Helper function to calculate Median Time Past for a block height
     fn median_time_past_at(&self, height: usize) -> i64 {
-        let start = height.saturating_sub(10); // 11 blocks (including current)
+        let start = height.saturating_sub(10);
         let mut timestamps: Vec<i64> = self.chain[start..=height]
             .iter()
             .map(|b| (b.timestamp / 1000) as i64)
             .collect();
-        
+
         if timestamps.is_empty() {
             return 0;
         }
-        
+
         timestamps.sort();
         timestamps[timestamps.len() / 2]
     }
@@ -705,7 +707,7 @@ fn scale_target(target: &[u8; 32], scale_256: u128) -> [u8; 32] {
             .unwrap_or(u128::MAX)
             .checked_add(carry)
             .unwrap_or(u128::MAX);
-            
+
         result[i] = (v & 0xff) as u8;
         carry = v >> 8;
     }
