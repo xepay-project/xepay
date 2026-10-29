@@ -9,6 +9,8 @@ use std::io::{Error, Read, Write};
 
 use crate::block::Block;
 use crate::blockchain::Blockchain;
+use crate::consensus::genesis;
+use crate::consensus::spec;
 use crate::datadir;
 use crate::storage::Account;
 use crate::validation;
@@ -66,6 +68,36 @@ pub fn load_chain() -> std::io::Result<Blockchain> {
         return Err(Error::other(
             "consensus failure: the genesis block previous_hash is not zero.",
         ));
+    }
+
+    // ------------------------------------------------------------------
+    // Genesis hash validation
+    // ------------------------------------------------------------------
+    //
+    // Verify that the genesis block on disk matches the expected genesis
+    // hash for the current network. If it does not match, the on-disk
+    // chain was created with a different genesis block (for example,
+    // before a hard fork) and must be reindexed or deleted.
+    //
+    // This check mirrors the behaviour of reference node implementations,
+    // which refuse to start when the on-disk genesis block does not match
+    // the consensus parameters compiled into the binary.
+    let expected_genesis_hash =
+        genesis::expected_genesis_hash_for(spec::current_network());
+    if blocks[0].hash != expected_genesis_hash {
+        return Err(Error::other(format!(
+            "consensus failure: the genesis block on disk (hash {}) does not match \
+             the expected genesis hash ({}). The on-disk chain was created with a \
+             different genesis block. This usually means the datadir was created \
+             before a hard fork. To fix, delete the datadir and restart:\n\
+             \n    rm -rf {}\n\
+             \nAlternatively, run with -reindex to rebuild the state from the \
+             block history. Note that -reindex alone does not replace the genesis \
+             block; if the genesis hash does not match, the datadir must be deleted.",
+            blocks[0].hash,
+            expected_genesis_hash,
+            datadir::as_str(&datadir::datadir())
+        )));
     }
 
     let mempool = load_mempool().unwrap_or_default();
