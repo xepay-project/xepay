@@ -5,6 +5,7 @@
 //! Integration tests for XEPAY.
 
 mod bug_regression_test;
+mod coin_creation_test;
 mod difficulty_test;
 mod genesis_test;
 mod halving_test;
