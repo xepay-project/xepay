@@ -89,10 +89,26 @@ impl Transaction {
         .finalize()
     }
 
+    /// Compute the transaction ID.
+    ///
+    /// The txid is a hash of every field that affects the transaction's
+    /// validity, including `public_key` and `output_script`. This ensures
+    /// that any change to the transaction produces a different txid, which
+    /// prevents txid malleability. Reference node implementations follow
+    /// the same principle: the txid commits to the full transaction data,
+    /// including the script that carries the public key.
     pub fn compute_txid(&self) -> String {
         let payload = format!(
-            "{}|{}|{}|{}|{}|{}",
-            self.from, self.to, self.amount, self.fee, self.nonce, self.note,
+            "{}|{}|{}|{}|{}|{}|{}|{}|{}",
+            self.from,
+            self.to,
+            self.amount,
+            self.fee,
+            self.nonce,
+            self.note,
+            self.public_key,
+            self.signature,
+            self.output_script,
         );
         sha3_256_hex(payload.as_bytes())
     }
