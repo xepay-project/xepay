@@ -2,7 +2,7 @@
 // Distributed under the Apache License, see the accompanying
 // file LICENSE or https://www.apache.org/licenses/LICENSE-2.0.
 
-//! Ethereum-style state database using Merkle Patricia Trie backed by LevelDB.
+//! State database using Merkle Patricia Trie backed by LevelDB.
 
 use alloy_primitives::B256;
 use eth_trie::{EthTrie, Trie, DB};
@@ -92,6 +92,25 @@ impl StateDB {
 
         self.trie = verification_trie;
         Ok(())
+    }
+
+    /// Create a temporary snapshot of the current state without
+    /// modifying the original. This is used by `getblocktemplate`
+    /// to simulate the effect of mempool transactions on the state root.
+    pub fn rollback_snapshot(&self) -> Result<StateDB, String> {
+        let root = self
+            .trie
+            .root_hash()
+            .map_err(|e| format!("failed to read root hash: {}", e))?;
+        let root_b256 = B256::from_slice(root.as_slice());
+
+        let new_trie = EthTrie::from(self.adapter.clone(), root_b256)
+            .map_err(|e| format!("failed to create snapshot trie: {}", e))?;
+
+        Ok(StateDB {
+            trie: new_trie,
+            adapter: self.adapter.clone(),
+        })
     }
 
     pub fn balance_of(&self, address: &str) -> u64 {
