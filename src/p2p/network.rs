@@ -998,7 +998,7 @@ impl Network {
         match crate::p2p::sync::SyncState::accept_block(&mut chain, block.clone()) {
             Ok(_) => {
                 self.inv.add_block(&block.hash);
-                let _ = storage::save_chain(&chain);
+                let _ = storage::save_chain(&mut chain);
                 drop(chain);
                 self.broadcast_inv_to_full_relay(&[Inventory {
                     inv_type: InvType::Block,
