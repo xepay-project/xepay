@@ -31,17 +31,17 @@ pub const GENESIS_TIMESTAMP: u128 = 1792303198445;
 
 // The expected mainnet genesis hash.
 pub const EXPECTED_GENESIS_HASH: &str =
-    "0000050159a15b33b8a726aabce26cec6ef14f96340fa07d481d445d3ac25a1a";
+    "000004accc8488951db534e6a3c84fb3a54c11f7041ff8b305584e907abf69a8";
 
 // The expected mainnet genesis merkle root.
 pub const EXPECTED_GENESIS_MERKLE_ROOT: &str =
-    "8d76a0d9d58b20892687b8269e9626dfd007c9aae4e362ffac8407df75a23fc3";
+    "8af01af7ca4b233428b7c2bf6ea9de4148272a5aea72dd16cda0870435aba720";
 
 // The expected mainnet genesis timestamp.
 pub const EXPECTED_GENESIS_TIMESTAMP: u128 = 1792303198445;
 
 // The expected mainnet genesis nonce.
-pub const EXPECTED_GENESIS_NONCE: u64 = 835093;
+pub const EXPECTED_GENESIS_NONCE: u64 = 93865;
 
 // ----------------------------------------------------------------------
 // Testnet genesis
@@ -56,17 +56,17 @@ pub const TESTNET_GENESIS_TIMESTAMP: u128 = 1792303198446;
 
 // The expected testnet genesis hash.
 pub const TESTNET_EXPECTED_GENESIS_HASH: &str =
-    "00000794f3bd67af183fd6b237b08d4e87ebd27758446fd1687ef9c4afd97dc9";
+    "0000039e3513554d27f0a94c6568696fae7afc94acd9016f572bb5d1a42589e7";
 
 // The expected testnet genesis merkle root.
 pub const TESTNET_EXPECTED_GENESIS_MERKLE_ROOT: &str =
-    "1d6f1c25b8d4e95bb1fdd588c236480a0a3772d115a78bdcb728b457613d9b6e";
+    "8af01af7ca4b233428b7c2bf6ea9de4148272a5aea72dd16cda0870435aba720";
 
 // The expected testnet genesis timestamp.
 pub const TESTNET_EXPECTED_GENESIS_TIMESTAMP: u128 = 1792303198446;
 
 // The expected testnet genesis nonce.
-pub const TESTNET_EXPECTED_GENESIS_NONCE: u64 = 1892429;
+pub const TESTNET_EXPECTED_GENESIS_NONCE: u64 = 464818;
 
 // ----------------------------------------------------------------------
 // Regtest genesis
@@ -81,17 +81,17 @@ pub const REGTEST_GENESIS_TIMESTAMP: u128 = 1792303198447;
 
 // The expected regtest genesis hash.
 pub const REGTEST_EXPECTED_GENESIS_HASH: &str =
-    "41015a249ae2cfd0c4f997f00115701be383bf8d3adc0e76fe0bad5c3413af53";
+    "29a464f7a994be1c96a5c5f627aefca5db0f2e6f5deef23cc8c81e8e4c3b462c";
 
 // The expected regtest genesis merkle root.
 pub const REGTEST_EXPECTED_GENESIS_MERKLE_ROOT: &str =
-    "8d76a0d9d58b20892687b8269e9626dfd007c9aae4e362ffac8407df75a23fc3";
+    "8af01af7ca4b233428b7c2bf6ea9de4148272a5aea72dd16cda0870435aba720";
 
 // The expected regtest genesis timestamp.
 pub const REGTEST_EXPECTED_GENESIS_TIMESTAMP: u128 = 1792303198447;
 
 // The expected regtest genesis nonce.
-pub const REGTEST_EXPECTED_GENESIS_NONCE: u64 = 0;
+pub const REGTEST_EXPECTED_GENESIS_NONCE: u64 = 2;
 
 // ----------------------------------------------------------------------
 // Network-aware accessors
