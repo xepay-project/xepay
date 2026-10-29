@@ -12,7 +12,7 @@
 use serial_test::serial;
 use std::sync::Mutex;
 use xepay::block::Block;
-use xepay::blockchain::{self, Blockchain};
+use xepay::blockchain::Blockchain;
 use xepay::consensus::spec::Network;
 
 static ENV_MUTEX: Mutex<()> = Mutex::new(());
@@ -26,22 +26,39 @@ fn with_temp_datadir<F: FnOnce()>(f: F) {
     std::env::remove_var("XEPC_DATADIR");
 }
 
-/// `compute_work` must be bounded for any valid Mainnet nbits.
+/// `compute_work` must be bounded for any valid nbits.
 ///
-/// We use Mainnet nbits (`0x1e0ffff0`) instead of Regtest nbits
-/// (`0x207fffff`) because the Regtest target is so large that it
-/// overflows `u128`, which makes `compute_work` return `u128::MAX`
-/// by design. That is *correct* behavior for Regtest, but it is not
-/// what this test is checking.
+/// A target that exceeds `u128::MAX` yields the minimum work (1), because
+/// the difficulty is trivially low. This mirrors the behaviour of
+/// reference node implementations, which clamp chainwork to 1 when the
+/// target is larger than the chainwork word size.
 #[test]
 fn compute_work_is_bounded_for_valid_nbits() {
+    // Mainnet nbits (0x1e0ffff0) has a target that exceeds u128::MAX,
+    // so compute_work must return the minimum possible work (1).
     let nbits = Network::Main.genesis_nbits();
     let work = Block::compute_work(nbits);
-    assert!(
-        work < u128::MAX,
-        "compute_work must be bounded for Mainnet nbits"
+    assert_eq!(
+        work, 1,
+        "compute_work must return 1 for a target that exceeds u128::MAX"
     );
-    assert!(work > 0, "compute_work must be positive for Mainnet nbits");
+
+    // Regtest nbits (0x207fffff) also has a target that exceeds u128::MAX.
+    let regtest_nbits = Network::Regtest.genesis_nbits();
+    let regtest_work = Block::compute_work(regtest_nbits);
+    assert_eq!(
+        regtest_work, 1,
+        "compute_work must return 1 for Regtest nbits"
+    );
+
+    // A nbits with a target that fits in u128 must return work > 1.
+    // 0x1d00ffff has a target of 0x00000000ffff... which fits in u128.
+    let small_nbits = 0x1d00ffffu32;
+    let small_work = Block::compute_work(small_nbits);
+    assert!(
+        small_work > 1,
+        "compute_work must return work > 1 for a target that fits in u128"
+    );
 }
 
 /// `compute_work` must return `u128::MAX` only for a zero target.
@@ -60,10 +77,9 @@ fn compute_work_returns_max_for_zero_target() {
 ///
 /// # Design
 ///
-/// We request enough space to evict *only one* transaction (half of the
-/// total mempool size). If the eviction logic is correct, the transaction
-/// with the lower total fee is evicted and the one with the higher total
-/// fee is kept.
+/// We request exactly enough space to evict one small transaction. If the
+/// eviction logic is correct, the transaction with the lower total fee is
+/// evicted and the one with the higher total fee is kept.
 #[test]
 #[serial]
 fn mempool_eviction_keeps_high_total_fee() {
@@ -92,14 +108,13 @@ fn mempool_eviction_keeps_high_total_fee() {
         large_tx.txid = large_tx.compute_txid();
 
         let small_size = Blockchain::tx_size_bytes(&small_tx);
-        let large_size = Blockchain::tx_size_bytes(&large_tx);
-        let total_size = small_size + large_size;
 
         chain.mempool.push(small_tx.clone());
         chain.mempool.push(large_tx.clone());
 
-        // Request enough space to evict only one transaction.
-        let needed = total_size / 2 + 1;
+        // Request exactly enough space to evict one small transaction.
+        // This ensures only the lower-fee transaction is removed.
+        let needed = small_size;
         chain.evict_lowest_fee_transactions(needed);
 
         // The large transaction (higher total fee) should be kept.
