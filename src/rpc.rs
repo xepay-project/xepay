@@ -474,7 +474,7 @@ impl RpcHandler {
             println!("[node] WARNING: Failed to flush state db: {}", e);
         }
 
-        match storage::save_chain(&chain) {
+        match storage::save_chain(&mut chain) {
             Ok(_) => {
                 println!("[node]   blocks     : {}", chain.chain.len());
                 println!(
@@ -633,10 +633,10 @@ impl RpcHandler {
     //
     // This function acquires a write lock on the chain because computing
     // the next state root requires mutating a temporary snapshot of the
-    // trie (equivalent to `TestBlockValidity` in Bitcoin Core, which
-    // mutates a temporary `CCoinsViewCache`). The write lock is held
-    // only for the duration of this function and is released before
-    // returning, so it does not block other RPC calls.
+    // trie (equivalent to `TestBlockValidity` in reference node
+    // implementations, which mutates a temporary `CCoinsViewCache`). The
+    // write lock is held only for the duration of this function and is
+    // released before returning, so it does not block other RPC calls.
     fn m_getblocktemplate(&self) -> RpcResponse {
         let mut c = self.state.chain.blocking_write();
         let next_height = c.height() + 1;
@@ -770,7 +770,7 @@ impl RpcHandler {
 
         block.log_add_to_wallet();
 
-        if let Err(e) = storage::save_chain(&chain) {
+        if let Err(e) = storage::save_chain(&mut chain) {
             return RpcResponse::err(&format!("failed to save chain: {}", e));
         }
 
@@ -1380,7 +1380,7 @@ impl RpcHandler {
                 chain.chain.push(block.clone());
                 chain.adjust_difficulty();
                 block.log_add_to_wallet();
-                if let Err(e) = storage::save_chain(&chain) {
+                if let Err(e) = storage::save_chain(&mut chain) {
                     return RpcResponse::err(&format!("failed to save chain: {}", e));
                 }
             }
@@ -1575,7 +1575,7 @@ impl RpcHandler {
             nonce
         );
 
-        if let Err(e) = storage::save_chain(&chain) {
+        if let Err(e) = storage::save_chain(&mut chain) {
             return RpcResponse::err(&format!("failed to save chain: {}", e));
         }
         let mempool_len = chain.mempool.len();
