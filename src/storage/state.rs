@@ -22,7 +22,7 @@ pub struct StateDB {
 impl StateDB {
     pub fn open(path: &Path) -> Result<Self, String> {
         let adapter = Arc::new(LevelDbAdapter::open(path)?);
-        
+
         let root_path = crate::datadir::chainstate_dir().join("root_hash.txt");
         if let Ok(hex_str) = std::fs::read_to_string(&root_path) {
             let hex_str = hex_str.trim();
@@ -74,7 +74,23 @@ impl StateDB {
         let root = B256::from_slice(root_hash);
         let new_trie = EthTrie::from(self.adapter.clone(), root)
             .map_err(|e| format!("failed to create trie from root: {}", e))?;
-        self.trie = new_trie;
+
+        // Verify that the root is valid by checking that the trie can
+        // compute its own root hash and the result matches the input.
+        let mut verification_trie = new_trie;
+        let computed_root = verification_trie
+            .root_hash()
+            .map_err(|e| format!("failed to compute root hash during rollback: {}", e))?;
+
+        if computed_root.as_slice() != root_hash {
+            return Err(format!(
+                "state root mismatch during rollback: expected {}, got {}",
+                hex::encode(root_hash),
+                hex::encode(computed_root)
+            ));
+        }
+
+        self.trie = verification_trie;
         Ok(())
     }
 
@@ -252,7 +268,7 @@ impl StateDB {
 
     pub fn flush(&mut self) -> Result<(), String> {
         let root = self.trie.root_hash().map_err(|e| e.to_string())?;
-        
+
         let path = crate::datadir::chainstate_dir().join("root_hash.txt");
         let _ = std::fs::write(path, hex::encode(root));
 
