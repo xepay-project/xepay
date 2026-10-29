@@ -456,7 +456,12 @@ impl Blockchain {
         tx.fee / size
     }
 
-    fn evict_lowest_fee_transactions(&mut self, needed_space: usize) {
+    /// Evict the lowest total-fee transactions to make room for new ones.
+    ///
+    /// This method is `pub` because it is exercised by integration tests
+    /// in `src/tests/security_hardening_test.rs`. It is not part of the
+    /// public RPC surface.
+    pub fn evict_lowest_fee_transactions(&mut self, needed_space: usize) {
         // Sort by total absolute fee (fee_rate * size), ascending.
         // This ensures that transactions with the highest total fee are kept,
         // regardless of their size.
