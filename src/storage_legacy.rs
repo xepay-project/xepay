@@ -44,14 +44,14 @@ pub fn load_chain() -> std::io::Result<Blockchain> {
 
     let mempool = load_mempool().unwrap_or_default();
 
-    // Cek mode reindex
+    // Check the reindex mode.
     let reindex_requested = std::env::var("XEPAY_REINDEX").is_ok();
 
     if reindex_requested {
         eprintln!("[node] Manual reindex requested. Deleting state database...");
         let _ = std::fs::remove_dir_all(&db_path);
-        
-        // Hapus root_hash.txt juga biar trie mulai dari kosong
+
+        // Delete root_hash.txt so that the trie starts from empty.
         let root_path = datadir::chainstate_dir().join("root_hash.txt");
         let _ = std::fs::remove_file(root_path);
     }
@@ -76,8 +76,8 @@ pub fn load_chain() -> std::io::Result<Blockchain> {
             eprintln!("[node] FATAL: Reindex failed: {}", e);
             std::process::exit(1);
         }
-        
-        // FLUSH SETELAH REINDEX (BIAR ROOT HASH TERSIMPAN)
+
+        // Flush after reindex so that the root hash is persisted.
         if let Err(e) = chain.state.flush() {
             eprintln!("[node] FATAL: Failed to flush state after reindex: {}", e);
             std::process::exit(1);
@@ -85,17 +85,16 @@ pub fn load_chain() -> std::io::Result<Blockchain> {
 
         eprintln!("[node] Reindex successful! State fully rebuilt from blocks.");
     } else {
-        // Strict Verification (Bitcoin-style)
+        // Strict verification: the node refuses to start with an
+        // inconsistent state. The caller (AppInit) decides whether to
+        // exit or prompt the user to run with -reindex.
         if let Err(e) = verify_state_root(&mut chain) {
-            eprintln!();
-            eprintln!("[node] FATAL: {}", e);
-            eprintln!("[node] The state database is corrupted or out of sync.");
-            eprintln!("[node] To fix this, run with reindex:");
-            eprintln!();
-            eprintln!("    ./xepayd -regtest -reindex");
-            eprintln!();
-            eprintln!("[node] Refusing to start with an inconsistent state.");
-            std::process::exit(1);
+            return Err(Error::other(format!(
+                "state root verification failed: {}. \
+                 The state database is corrupted or out of sync. \
+                 Run with -reindex to rebuild the state from the block history.",
+                e
+            )));
         }
     }
 
@@ -104,7 +103,7 @@ pub fn load_chain() -> std::io::Result<Blockchain> {
 
 fn rebuild_state_from_blocks(chain: &mut Blockchain) -> std::io::Result<()> {
     let blocks = chain.chain.clone();
-    
+
     if let Some(genesis_block) = blocks.first() {
         chain.state.update_account(
             "GENESIS",
@@ -132,6 +131,12 @@ fn rebuild_state_from_blocks(chain: &mut Blockchain) -> std::io::Result<()> {
     Ok(())
 }
 
+/// Verify that the state database matches the state root committed in the
+/// tip block. Returns an error if the roots do not match.
+///
+/// This function does NOT call `std::process::exit`. It returns an error
+/// to the caller so that the caller can decide how to handle the
+/// inconsistency (e.g. print a message and exit, or retry with reindex).
 fn verify_state_root(chain: &mut Blockchain) -> std::io::Result<()> {
     if chain.chain.is_empty() {
         return Ok(());
@@ -151,11 +156,10 @@ fn verify_state_root(chain: &mut Blockchain) -> std::io::Result<()> {
     let current_root_hex = hex::encode(current_root);
 
     if current_root_hex != tip.state_root {
-        let msg = format!(
+        return Err(Error::other(format!(
             "state root mismatch at height {}.\nExpected: {}\nGot:      {}",
             tip.index, tip.state_root, current_root_hex
-        );
-        return Err(Error::other(msg));
+        )));
     }
 
     Ok(())
@@ -208,10 +212,10 @@ pub fn save_blocks(chain: &Blockchain) -> std::io::Result<()> {
         let end = (written + BLOCKS_PER_FILE).min(total);
         let slice = &chain.chain[written..end];
         let path = datadir::block_file(file_index);
-        
+
         let encoded = bincode::serialize(slice)
             .map_err(|e| Error::other(format!("bincode serialize error: {}", e)))?;
-            
+
         let mut file = std::fs::File::create(path)?;
         file.write_all(&encoded)?;
         file.flush()?;
@@ -238,7 +242,7 @@ pub fn load_blocks() -> std::io::Result<Vec<Block>> {
 
         let mut chunk: Vec<Block> = bincode::deserialize(&buffer)
             .map_err(|e| Error::other(format!("bincode deserialize error: {}", e)))?;
-            
+
         all.append(&mut chunk);
         i += 1;
     }
