@@ -32,9 +32,6 @@ pub const DEFAULT_RPC_ADDR: &str = "127.0.0.1:7554";
 // Default fee for transactions in XEPC (0.001 XEPC).
 pub const DEFAULT_FEE_XEPC: u64 = 100_000;
 
-// Number of ALD (smallest unit) in one XEPC.
-const ALD_PER_XEPC: u64 = 100_000_000;
-
 #[derive(Debug, Serialize, Deserialize)]
 pub struct RpcRequest {
     pub method: String,
