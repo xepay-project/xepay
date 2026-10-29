@@ -38,7 +38,7 @@ pub const GENESIS_SECRET: &str = "ID Today 15/Oct/2026";
 // is required if XEPAY later adds script execution or multi-signature
 // support.
 pub const GENESIS_OUTPUT_SCRIPT: &str =
-    "04678afdb0fe5548271967f1a67130b7105cd6a828e03909a67962e0ea1f61deb649f6bc3f4cef38c4f35504e51ec112de5c384df7ba0b8d578a4c702b6bf11d5f OP_CHECKSIG";
+    "024c1157ce00b7b7750ece695deec3af20f5fb0bdb2da791dbbf6e51f76542ff73 OP_CHECKSIG";
 
 // ----------------------------------------------------------------------
 // Mainnet genesis
