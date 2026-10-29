@@ -625,7 +625,23 @@ pub fn validate_block(
     rule_block_timestamp_monotonic(prev, block)?;
     rule_block_checkpoint(block)?;
     rule_block_nbits(chain, block)?;
+    rule_block_chainwork(prev, block)?;
     validate_block_transactions(chain, &block.transactions, block.index)?;
+    Ok(())
+}
+
+pub fn rule_block_chainwork(prev: &Block, cur: &Block) -> Result<(), ValidationError> {
+    let expected_block_work = Block::compute_work(cur.nbits);
+    let expected_chainwork = prev.chainwork.saturating_add(expected_block_work);
+    if cur.chainwork != expected_chainwork {
+        return Err(ValidationError::new(
+            "E051",
+            format!(
+                "chainwork of block {} is invalid: got {}, expected {}",
+                cur.index, cur.chainwork, expected_chainwork
+            ),
+        ));
+    }
     Ok(())
 }
 
@@ -652,9 +668,9 @@ pub fn validate_chain(chain: &mut Blockchain) -> Result<(), ValidationError> {
     }
 
     for i in 1..chain.chain.len() {
-        let (prev_hash, prev_index, prev_timestamp) = {
+        let (prev_hash, prev_index, prev_timestamp, prev_chainwork) = {
             let prev = &chain.chain[i - 1];
-            (prev.hash.clone(), prev.index, prev.timestamp)
+            (prev.hash.clone(), prev.index, prev.timestamp, prev.chainwork)
         };
         let (
             _cur_hash,
@@ -670,6 +686,7 @@ pub fn validate_chain(chain: &mut Blockchain) -> Result<(), ValidationError> {
             cur_nbits,
             cur_timestamp,
             cur_tx_count,
+            cur_chainwork,
             cur_transactions,
         ) = {
             let cur = &chain.chain[i];
@@ -687,6 +704,7 @@ pub fn validate_chain(chain: &mut Blockchain) -> Result<(), ValidationError> {
                 cur.nbits,
                 cur.timestamp,
                 cur.transactions.len(),
+                cur.chainwork,
                 cur.transactions.clone(),
             )
         };
@@ -758,8 +776,7 @@ pub fn validate_chain(chain: &mut Blockchain) -> Result<(), ValidationError> {
             return Err(ValidationError::new("E032",
                 format!("timestamp of block {} is earlier than block {}", cur_index, prev_index)));
         }
-        
-        // Future Time Limit check during full chain validation
+
         let now = crate::utils::now_millis();
         let max_future_time = now.saturating_add(2 * 60 * 60 * 1000);
         if cur_timestamp > max_future_time {
@@ -770,6 +787,13 @@ pub fn validate_chain(chain: &mut Blockchain) -> Result<(), ValidationError> {
         if cur_nbits != chain.nbits {
             return Err(ValidationError::new("E033",
                 format!("nbits of block {:#010x} does not match chain nbits {:#010x}", cur_nbits, chain.nbits)));
+        }
+
+        let expected_block_work = Block::compute_work(cur_nbits);
+        let expected_chainwork = prev_chainwork.saturating_add(expected_block_work);
+        if cur_chainwork != expected_chainwork {
+            return Err(ValidationError::new("E051",
+                format!("chainwork of block {} is invalid: got {}, expected {}", cur_index, cur_chainwork, expected_chainwork)));
         }
 
         validate_block_transactions(chain, &cur_transactions, cur_index)?;
