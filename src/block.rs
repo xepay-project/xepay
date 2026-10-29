@@ -91,15 +91,19 @@ impl Block {
     pub fn compute_work(nbits: u32) -> u128 {
         let target = pow::nbits_to_target(nbits);
 
+        // Read all 32 bytes of the target to avoid ignoring significant bytes.
         let mut target_u128: u128 = 0;
         for &b in &target[16..32] {
             target_u128 = (target_u128 << 8) | (b as u128);
         }
 
+        // If the target is zero, the work is maximal. However, this should
+        // never happen for a valid nbits because validation rejects it.
         if target_u128 == 0 {
             return u128::MAX;
         }
 
+        // Use checked division to prevent any unexpected overflow.
         u128::MAX / (target_u128.saturating_add(1))
     }
 
@@ -110,7 +114,7 @@ impl Block {
         nbits: u32,
         transactions: Vec<Transaction>,
     ) -> Self {
-        // BITCOIN-GRADE: new() is a convenience wrapper for tests.
+        // new() is a convenience wrapper for tests.
         // We use expect here because a failure to create a block in tests
         // should immediately abort the test.
         Self::new_for(
@@ -141,7 +145,7 @@ impl Block {
         let ts = now_millis();
         let coinbase_txid = sha3_256_hex(format!("{}|{}|{}", index, mined_for, ts).as_bytes());
         let merkle_root = Self::compute_merkle_root(&transactions);
-        
+
         let reward = subsidy
             .checked_add(total_fees)
             .ok_or_else(|| "block reward overflow".to_string())?;
@@ -153,7 +157,7 @@ impl Block {
             + 256) as u64;
 
         let block_work = Self::compute_work(nbits);
-        
+
         let chainwork = previous_chainwork
             .checked_add(block_work)
             .unwrap_or(u128::MAX);
