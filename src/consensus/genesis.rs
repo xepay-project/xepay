@@ -52,17 +52,17 @@ pub const GENESIS_TIMESTAMP: u128 = 1792303198445;
 // NOTE: This value must be regenerated after any change to
 // GENESIS_OUTPUT_SCRIPT. Run `xepay-genesis` and paste the output here.
 pub const EXPECTED_GENESIS_HASH: &str =
-    "PLACEHOLDER_RUN_XEPAY_GENESIS_MAINNET";
+    "000004fba201c1e100435b85d52023062878e46b008bc4762f60cc6afbfba179";
 
 // The expected mainnet genesis merkle root.
 pub const EXPECTED_GENESIS_MERKLE_ROOT: &str =
-    "PLACEHOLDER_RUN_XEPAY_GENESIS_MAINNET";
+    "8af01af7ca4b233428b7c2bf6ea9de4148272a5aea72dd16cda0870435aba720";
 
 // The expected mainnet genesis timestamp.
 pub const EXPECTED_GENESIS_TIMESTAMP: u128 = 1792303198445;
 
 // The expected mainnet genesis nonce.
-pub const EXPECTED_GENESIS_NONCE: u64 = 0;
+pub const EXPECTED_GENESIS_NONCE: u64 = 803050;
 
 // ----------------------------------------------------------------------
 // Testnet genesis
