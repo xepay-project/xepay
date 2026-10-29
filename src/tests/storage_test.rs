@@ -12,7 +12,8 @@ static ENV_MUTEX: Mutex<()> = Mutex::new(());
 fn with_temp_datadir<F: FnOnce()>(f: F) {
     let _guard = ENV_MUTEX.lock().unwrap();
     let dir = tempfile::tempdir().expect("tempdir failed");
-    std::env::set_var("XEPC_DATADIR", dir.path());
+    let path = dir.keep();
+    std::env::set_var("XEPC_DATADIR", &path);
     f();
     std::env::remove_var("XEPC_DATADIR");
 }
@@ -22,8 +23,8 @@ fn with_temp_datadir<F: FnOnce()>(f: F) {
 fn save_and_load_chain() {
     with_temp_datadir(|| {
         {
-            let chain = Blockchain::new();
-            storage::save_chain(&chain).expect("save failed");
+            let mut chain = Blockchain::new();
+            storage::save_chain(&mut chain).expect("save failed");
         }
 
         let loaded = storage::load_chain().expect("load failed");
