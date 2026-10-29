@@ -24,13 +24,13 @@ fn main() {
     let args: Vec<String> = std::env::args().collect();
     let mut selected_network = Network::Main;
     let mut is_daemon_child = false;
-    let mut reindex = false; // <-- Flag reindex
+    let mut reindex = false;
 
     for arg in &args[1..] {
         match arg.as_str() {
             "-testnet" | "--testnet" => selected_network = Network::Test,
             "-regtest" | "--regtest" => selected_network = Network::Regtest,
-            "-reindex" | "--reindex" => reindex = true, // <-- Parsing flag
+            "-reindex" | "--reindex" => reindex = true,
             "--daemon-child" => is_daemon_child = true,
             "--help" | "-h" => {
                 println!("Usage: xepayd [-testnet|--testnet] [-regtest|--regtest] [-reindex]");
@@ -53,7 +53,6 @@ fn main() {
 
     spec::set_current_network(selected_network);
 
-    // Set environment variable jika reindex dipanggil
     if reindex {
         std::env::set_var("XEPAY_REINDEX", "1");
     }
@@ -101,9 +100,14 @@ async fn async_main(selected_network: Network, is_daemon_child: bool) {
 
     let _ = Block::genesis();
 
-    let chain = Arc::new(RwLock::new(
-        storage::load_chain().unwrap_or_else(|_| Blockchain::new()),
-    ));
+    let chain = match storage::load_chain() {
+        Ok(c) => Arc::new(RwLock::new(c)),
+        Err(e) => {
+            eprintln!("[node] FATAL: failed to load chain: {}", e);
+            eprintln!("[node] Refusing to start with an inconsistent state.");
+            std::process::exit(1);
+        }
+    };
 
     let peer_registry: PeerRegistry = Arc::new(Mutex::new(Vec::new()));
     let (cmd_tx, cmd_rx) = mpsc::channel::<NetworkCommand>(100);
@@ -177,13 +181,12 @@ async fn async_main(selected_network: Network, is_daemon_child: bool) {
     }
 
     {
-        let guard = chain.read().await;
-        if let Err(e) = storage::save_chain(&guard) {
+        let mut guard = chain.write().await;
+        if let Err(e) = storage::save_chain(&mut guard) {
             eprintln!("[node] failed to save chain: {}", e);
         } else {
             println!("[node] chain saved");
         }
-        drop(guard);
     }
 
     let _ = cmd_tx_for_shutdown.send(NetworkCommand::Shutdown).await;
@@ -274,13 +277,11 @@ fn detach_to_background() {
             println!("[daemon] spawned background process (PID: {})", child.id());
             println!("[daemon] waiting for the node to be ready...");
 
-            // Wait until the RPC server in the child responds.
             let start = Instant::now();
             let timeout = Duration::from_secs(10);
             let mut ready = false;
 
             while start.elapsed() < timeout {
-                // Try to call getinfo. If it succeeds, the node is ready.
                 if let Ok(resp) = rpc::call("getinfo", vec![]) {
                     if resp.ok {
                         ready = true;
