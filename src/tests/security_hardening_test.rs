@@ -51,9 +51,10 @@ fn compute_work_is_bounded_for_valid_nbits() {
         "compute_work must return 1 for Regtest nbits"
     );
 
-    // A nbits with a target that fits in u128 must return work > 1.
-    // 0x1d00ffff has a target of 0x00000000ffff... which fits in u128.
-    let small_nbits = 0x1d00ffffu32;
+    // 0x1000ffff: exponent 16, target = 0x00ffff * 2^104.
+    // The first 16 bytes of the target are all zero, so the target fits
+    // in u128. compute_work must return a value greater than 1.
+    let small_nbits = 0x1000ffffu32;
     let small_work = Block::compute_work(small_nbits);
     assert!(
         small_work > 1,
