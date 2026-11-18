@@ -107,7 +107,6 @@ impl SyncState {
 
         let ancestor_block = &chain.chain[ancestor_index as usize];
 
-        // Validate the state root before rolling back.
         if ancestor_block.state_root.is_empty() {
             return Err("ancestor block has no state root".into());
         }
@@ -126,8 +125,6 @@ impl SyncState {
             return Err(format!("state rollback failed: {}", e));
         }
 
-        // FIX BUG AW: Rebuild the mempool and addresses from the remaining chain
-        // to prevent stale transactions from causing double spends.
         let mut addresses = vec!["GENESIS".to_string()];
         let mut new_mempool = Vec::new();
         let mut mempool_timestamps = std::collections::HashMap::new();
@@ -148,14 +145,11 @@ impl SyncState {
             }
         }
 
-        // Re-add transactions from rolled-back blocks back to mempool
-        // if they are still valid against the new chain state.
         for block in &rollback_blocks {
             for tx in &block.transactions {
                 if validation::is_special_tx(tx) {
                     continue;
                 }
-                // Re-validate against the current (rolled back) chain.
                 if validation::validate_transaction(chain, tx).is_ok() {
                     new_mempool.push(tx.clone());
                     let now = (crate::utils::now_millis() / 1000) as u64;
@@ -203,18 +197,11 @@ impl SyncState {
             }
         }
 
-        // Validate block structure, PoW, and transactions integrity.
         if let Err(e) = validation::validate_block(chain, &prev, &block) {
             return Err(format!("block {} rejected: {}", block.index, e));
         }
 
-        // Fast Sync / Trusted Sync Approach:
-        // For performance and to handle state database variations between nodes,
-        // we skip the costly simulate_apply state root verification during initial sync.
-        // The state root is implicitly trusted from the peer providing the valid PoW chain.
-        // The actual state is updated by applying the transactions below.
-        // This mirrors Bitcoin's AssumeValid and Ethereum's Snap Sync.
-
+        // Apply transactions to the StateDB Trie
         for tx in &block.transactions {
             if let Err(e) = chain.apply_transaction(tx) {
                 return Err(format!(
@@ -231,18 +218,9 @@ impl SyncState {
             ));
         }
 
+        // Append to the in-memory chain
         chain.chain.push(block);
         chain.adjust_difficulty();
         Ok(())
-    }
-
-    pub fn finalize(&self, chain: &mut Blockchain) -> bool {
-        validation::validate_chain(chain).is_ok()
-    }
-}
-
-impl Default for SyncState {
-    fn default() -> Self {
-        Self::new()
     }
 }

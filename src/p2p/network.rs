@@ -33,13 +33,10 @@ use crate::validation;
 
 const ASMAP_JSON: &str = include_str!("asmap.json");
 
-// FIX BUG BA: Reduce the write buffer limit to prevent OOM with many inbound peers.
-const MAX_WRITE_BUFFER: usize = 2 * 1024 * 1024;
-
-// Rate limiting constants for incoming P2P messages.
+const MAX_WRITE_BUFFER: usize = 16 * 1024 * 1024;
 const MAX_TX_PER_SECOND: u32 = 50;
 const MAX_INV_PER_SECOND: u32 = 100;
-const MAX_HEADERS_PER_SECOND: u32 = 20; // FIX BUG AL: Rate limit for headers
+const MAX_HEADERS_PER_SECOND: u32 = 20;
 const RATE_LIMIT_WINDOW_SECS: u64 = 1;
 
 #[derive(Debug, Clone, serde::Serialize)]
@@ -99,10 +96,9 @@ struct Connection {
     addr: SocketAddr,
     read_buf: Vec<u8>,
     write_buf: Vec<u8>,
-    // Rate limiting state per connection.
     tx_count: u32,
     inv_count: u32,
-    headers_count: u32, // FIX BUG AL
+    headers_count: u32,
     last_reset: Instant,
 }
 
@@ -356,7 +352,6 @@ impl Network {
                     if self.banman.is_banned(addr) || self.banman.is_discouraged(&addr.ip()) {
                         return false;
                     }
-                    // BYPASS ASMAP: Always allow local/private network connections.
                     let is_local = match addr.ip() {
                         IpAddr::V4(ip) => ip.is_loopback() || ip.is_private(),
                         IpAddr::V6(ip) => ip.is_loopback(),
@@ -383,7 +378,6 @@ impl Network {
                     if self.banman.is_banned(addr) || self.banman.is_discouraged(&addr.ip()) {
                         return false;
                     }
-                    // BYPASS ASMAP: Always allow local/private network connections.
                     let is_local = match addr.ip() {
                         IpAddr::V4(ip) => ip.is_loopback() || ip.is_private(),
                         IpAddr::V6(ip) => ip.is_loopback(),
@@ -613,8 +607,6 @@ impl Network {
 
             let mut buf = [0u8; 4096];
             let read_fut = conn.stream.read(&mut buf);
-            // FIX BUG AN: Increase timeout to 100ms to prevent false disconnect
-            // due to high load or network latency.
             let read_result = tokio::time::timeout(Duration::from_millis(100), read_fut).await;
 
             match read_result {
@@ -669,8 +661,6 @@ impl Network {
                 if conn.read_buf.is_empty() {
                     return;
                 }
-                // FIX BUG AM: Avoid cloning the entire buffer on each iteration.
-                // We read from the buffer slice directly and drain only the consumed bytes.
                 let mut cursor = std::io::Cursor::new(&conn.read_buf);
                 match read_message(&mut cursor) {
                     Ok((cmd, payload)) => {
@@ -798,7 +788,6 @@ impl Network {
                 }
             }
             Message::Inv(items) => {
-                // Rate limit inv messages per connection.
                 {
                     let conn = match self.connections.get_mut(&id) {
                         Some(c) => c,
@@ -812,7 +801,6 @@ impl Network {
                     }
                     conn.inv_count += 1;
                     if conn.inv_count > MAX_INV_PER_SECOND {
-                        // The borrow of `conn` ends here, allowing `self.punish` to be called.
                         self.punish(id, 20, "inv rate limit exceeded").await;
                         return;
                     }
@@ -830,7 +818,6 @@ impl Network {
                             self.inv.add_block(&inv.hash);
                             continue;
                         }
-                        // Only request blocks if the window is not full.
                         if self.sync_state.request_block(&inv.hash) {
                             to_request.push(inv.clone());
                         }
@@ -882,7 +869,6 @@ impl Network {
                 }
             }
             Message::GetHeaders(loc) => {
-                // FIX BUG AL: Rate limit getheaders messages per connection.
                 {
                     let conn = match self.connections.get_mut(&id) {
                         Some(c) => c,
@@ -913,7 +899,6 @@ impl Network {
                 self.handle_block(id, b).await;
             }
             Message::Tx(tx) => {
-                // Rate limit transaction messages per connection.
                 {
                     let conn = match self.connections.get_mut(&id) {
                         Some(c) => c,
@@ -927,7 +912,6 @@ impl Network {
                     }
                     conn.tx_count += 1;
                     if conn.tx_count > MAX_TX_PER_SECOND {
-                        // The borrow of `conn` ends here, allowing `self.punish` to be called.
                         self.punish(id, 20, "tx rate limit exceeded").await;
                         return;
                     }
@@ -985,7 +969,6 @@ impl Network {
             return;
         }
 
-        // Verify that the batch size does not exceed the configured limit.
         if headers.len() > peers::HEADERS_PER_REQUEST as usize {
             self.punish(id, 20, "too many headers in one message").await;
             return;
@@ -1016,20 +999,16 @@ impl Network {
         let tip_index = chain.chain.last().map(|b| b.index).unwrap_or(0);
         let mut to_request = Vec::new();
         for h in &headers {
-            // FIX BUG AY: Validate all header fields, not just PoW.
             if let Err(e) = validation::rule_block_pow(h) {
                 drop(chain);
                 self.punish(id, 50, &format!("invalid header PoW: {}", e)).await;
                 return;
             }
-            // REMOVED: rule_block_hash_consistent check to allow header sync without transactions.
-            // The full block will be validated later in sync.rs.
             if let Err(e) = validation::rule_block_nbits(&chain, h) {
                 drop(chain);
                 self.punish(id, 50, &format!("invalid header nbits: {}", e)).await;
                 return;
             }
-            // Timestamp validation for headers to prevent sync stall.
             if h.timestamp > crate::utils::now_millis().saturating_add(2 * 60 * 60 * 1000) {
                 drop(chain);
                 self.punish(id, 50, "header timestamp too far in the future").await;
@@ -1037,7 +1016,6 @@ impl Network {
             }
 
             if h.index > tip_index && !self.inv.has_block(&h.hash) {
-                // Respect the moving download window.
                 if self.sync_state.request_block(&h.hash) {
                     to_request.push(Inventory {
                         inv_type: InvType::Block,
@@ -1053,26 +1031,29 @@ impl Network {
     }
 
     async fn handle_block(&mut self, id: u64, block: Block) {
-        // Mark the block as received in the sync state.
         self.sync_state.received_block(&block.hash);
 
         let mut chain = self.chain.write().await;
         match crate::p2p::sync::SyncState::accept_block(&mut chain, block.clone()) {
             Ok(_) => {
                 self.inv.add_block(&block.hash);
-                let _ = storage::save_chain(&mut chain);
-                drop(chain);
                 
-                // NEW FIX: Immediately request the next batch of headers and blocks
-                // to keep the sync pipeline full and prevent stalling at 16 blocks.
-                self.send_getheaders(id).await;
-
+                // SEPARATION OF CONCERNS: Only save the block to the flat file database (blocks/).
+                // Do NOT save the state trie here. The trie is updated lazily during mining or shutdown.
+                // This prevents I/O blocking during heavy P2P sync.
+                let _ = storage::save_block_only(&block);
+                
+                drop(chain);
                 self.broadcast_inv_to_full_relay(&[Inventory {
                     inv_type: InvType::Block,
                     hash: block.hash.clone(),
                 }]);
 
                 println!("[p2p] block {} accepted from {}", block.index, id);
+
+                if self.sync_state.in_flight_count() < 16 {
+                    self.send_getheaders(id).await;
+                }
             }
             Err(e) => {
                 drop(chain);
@@ -1127,8 +1108,6 @@ impl Network {
     async fn disconnect(&mut self, id: u64, reason: &str) {
         if let Some(mut conn) = self.connections.remove(&id) {
             let _ = conn.stream.shutdown().await;
-            // FIX BUG AO: Remove the peer from the block relay anchor list
-            // to prevent reconnecting to a dead anchor on restart.
             if let Some(idx) = self.block_relay_peers.iter().position(|a| *a == conn.addr) {
                 self.block_relay_peers.remove(idx);
             }
@@ -1153,10 +1132,6 @@ impl Network {
                     self.connections.remove(&id);
                     println!("[p2p] peer {} disconnected: {}", id, reason);
 
-                    // ADDED: Auto-reconnect logic for outbound peers.
-                    // When the connection drops, we re-add the address to the address book
-                    // and reset its last try time so it can be picked up in the next
-                    // try_connect loop without waiting for the 60-second cooldown.
                     if let Some(peer) = self.peer_manager.get(id) {
                         if peer.outbound {
                             let addr = peer.addr;
